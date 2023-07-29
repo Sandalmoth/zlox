@@ -4,6 +4,7 @@ const _value = @import("value.zig");
 const Value = _value.Value;
 const ValueArray = _value.ValueArray;
 
+// gonna keep all-caps for operators, just to easily spot them
 pub const OpCode = enum {
     CONST,
     CONST_LONG,
@@ -27,6 +28,7 @@ pub const Chunk = struct {
         chunk.code.deinit();
         chunk.lines.deinit();
         chunk.constants.deinit();
+        chunk.* = undefined;
     }
 
     pub fn write(chunk: *Chunk, byte: u8, line: usize) void {
@@ -39,6 +41,7 @@ pub const Chunk = struct {
         chunk.lines.append(line) catch unreachable;
     }
 
+    /// writes any (implemented) bigger-than-byte type as a sequence of bytes
     pub fn writeLong(chunk: *Chunk, comptime T: type, long: T, line: usize) void {
         if (T == u24) {
             // write u24 to a byte array

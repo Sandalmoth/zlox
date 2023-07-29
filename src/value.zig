@@ -13,6 +13,7 @@ pub const ValueArray = struct {
 
     pub fn deinit(va: *ValueArray) void {
         va.values.deinit();
+        va.* = undefined;
     }
 
     pub fn write(va: *ValueArray, value: Value) void {
