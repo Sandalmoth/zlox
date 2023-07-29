@@ -20,13 +20,25 @@ pub fn main() !void {
     var chunk = Chunk.init(alloc);
     defer chunk.deinit();
 
-    {
-        const constant = chunk.addConstant(1.2);
-        chunk.writeOp(.CONST, 123);
-        std.debug.assert(constant < std.math.maxInt(u8));
-        chunk.write(@truncate(constant), 123);
-    }
+    var constant: usize = undefined;
+
+    constant = chunk.addConstant(1.2);
+    chunk.writeOp(.CONST, 123);
+    chunk.write(@truncate(constant), 123);
+
+    constant = chunk.addConstant(3.4);
+    chunk.writeOp(.CONST, 123);
+    chunk.write(@truncate(constant), 123);
+
+    chunk.writeOp(.ADD, 123);
+
+    constant = chunk.addConstant(5.6);
+    chunk.writeOp(.CONST, 123);
+    chunk.write(@truncate(constant), 123);
+
+    chunk.writeOp(.DIV, 123);
     chunk.writeOp(.NEGATE, 123);
+
     chunk.writeOp(.RETURN, 123);
 
     _debug.disassembleChunk(chunk, "test chunk");

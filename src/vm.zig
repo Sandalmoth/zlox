@@ -68,33 +68,36 @@ pub const VM = struct {
     /// then op_.* functions execute the operation
     /// tail recursion is enforced to prevent stack overflow
     fn run(vm: *VM) InterpretResult {
-        while (true) {
-            if (debug_trace_execution) {
-                std.debug.print("          ", .{});
-                var slot = vm.stack.ptr;
-                while (slot != vm.stack_top) : (slot += 1) {
-                    std.debug.print("[ ", .{});
-                    _value.printValue(slot[0]);
-                    std.debug.print(" ]", .{});
-                }
-                std.debug.print("\n", .{});
-                _ = _debug.disassembleInstruction(
-                    vm.chunk.*,
-                    @intCast(@intFromPtr(vm.ip) - @intFromPtr(vm.chunk.code.items.ptr)),
-                );
+        // note, the mutual recursion eliminates the need for a loop
+        if (debug_trace_execution) {
+            std.debug.print("          ", .{});
+            var slot = vm.stack.ptr;
+            while (slot != vm.stack_top) : (slot += 1) {
+                std.debug.print("[ ", .{});
+                _value.printValue(slot[0]);
+                std.debug.print(" ]", .{});
             }
+            std.debug.print("\n", .{});
+            _ = _debug.disassembleInstruction(
+                vm.chunk.*,
+                @intCast(@intFromPtr(vm.ip) - @intFromPtr(vm.chunk.code.items.ptr)),
+            );
+        }
 
-            const byte = vm.ip[0];
-            vm.ip += 1;
-            std.debug.assert(byte < std.meta.fields(OpCode).len);
-            const instruction: OpCode = @enumFromInt(byte);
+        const byte = vm.ip[0];
+        vm.ip += 1;
+        std.debug.assert(byte < std.meta.fields(OpCode).len);
+        const instruction: OpCode = @enumFromInt(byte);
 
-            switch (instruction) {
-                .CONST => return @call(.always_tail, op_CONST, .{vm}),
-                .CONST_LONG => @panic("CONST_LONG not implemented"),
-                .NEGATE => return @call(.always_tail, op_NEGATE, .{vm}),
-                .RETURN => return @call(.always_tail, op_RETURN, .{vm}),
-            }
+        switch (instruction) {
+            .CONST => return @call(.always_tail, op_CONST, .{vm}),
+            .CONST_LONG => @panic("CONST_LONG not implemented"),
+            .ADD => @call(.always_tail, op_ADD, .{vm}),
+            .SUB => @call(.always_tail, op_SUB, .{vm}),
+            .MUL => @call(.always_tail, op_MUL, .{vm}),
+            .DIV => @call(.always_tail, op_DIV, .{vm}),
+            .NEGATE => return @call(.always_tail, op_NEGATE, .{vm}),
+            .RETURN => return @call(.always_tail, op_RETURN, .{vm}),
         }
     }
 
@@ -111,6 +114,38 @@ pub const VM = struct {
 
     fn op_NEGATE(vm: *VM) InterpretResult {
         vm.push(-vm.pop());
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_ADD(vm: *VM) InterpretResult {
+        const b = vm.pop();
+        const a = vm.pop();
+        vm.push(a + b);
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_SUB(vm: *VM) InterpretResult {
+        const b = vm.pop();
+        const a = vm.pop();
+        vm.push(a - b);
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_MUL(vm: *VM) InterpretResult {
+        const b = vm.pop();
+        const a = vm.pop();
+        vm.push(a * b);
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_DIV(vm: *VM) InterpretResult {
+        const b = vm.pop();
+        const a = vm.pop();
+        vm.push(a / b);
 
         return @call(.always_tail, run, .{vm});
     }
