@@ -30,15 +30,10 @@ pub fn disassembleInstruction(chunk: Chunk, offset: usize) usize {
 
     const instruction: OpCode = @enumFromInt(byte);
     switch (instruction) {
-        .RETURN => {
-            return simpleInstruction("OP_RETURN", offset);
-        },
-        .CONST => {
-            return constantInstruction("OP_CONST", chunk, offset);
-        },
-        .CONST_LONG => {
-            return constantLongInstruction("OP_CONST_LONG", chunk, offset);
-        },
+        .CONST => return constantInstruction("OP_CONST", chunk, offset),
+        .CONST_LONG => return constantLongInstruction("OP_CONST_LONG", chunk, offset),
+        .NEGATE => return simpleInstruction("OP_NEGATE", offset),
+        .RETURN => return simpleInstruction("OP_RETURN", offset),
     }
 }
 

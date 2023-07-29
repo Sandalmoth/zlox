@@ -26,10 +26,9 @@ pub fn main() !void {
         std.debug.assert(constant < std.math.maxInt(u8));
         chunk.write(@truncate(constant), 123);
     }
-
+    chunk.writeOp(.NEGATE, 123);
     chunk.writeOp(.RETURN, 123);
 
     _debug.disassembleChunk(chunk, "test chunk");
-    std.debug.print("\n", .{});
     _ = vm.interpret(&chunk);
 }

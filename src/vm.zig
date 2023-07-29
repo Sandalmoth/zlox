@@ -90,13 +90,10 @@ pub const VM = struct {
             const instruction: OpCode = @enumFromInt(byte);
 
             switch (instruction) {
-                .CONST => @call(.always_tail, op_CONST, .{vm}),
+                .CONST => return @call(.always_tail, op_CONST, .{vm}),
                 .CONST_LONG => @panic("CONST_LONG not implemented"),
-                .RETURN => {
-                    _value.printValue(vm.pop());
-                    std.debug.print("\n", .{});
-                    return .ok;
-                },
+                .NEGATE => return @call(.always_tail, op_NEGATE, .{vm}),
+                .RETURN => return @call(.always_tail, op_RETURN, .{vm}),
             }
         }
     }
@@ -110,5 +107,17 @@ pub const VM = struct {
         // std.debug.print("\n", .{});
 
         return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_NEGATE(vm: *VM) InterpretResult {
+        vm.push(-vm.pop());
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_RETURN(vm: *VM) InterpretResult {
+        _value.printValue(vm.pop());
+        std.debug.print("\n", .{});
+        return .ok;
     }
 };

@@ -8,6 +8,7 @@ const ValueArray = _value.ValueArray;
 pub const OpCode = enum {
     CONST,
     CONST_LONG,
+    NEGATE,
     RETURN,
 };
 
