@@ -6,10 +6,14 @@ const Chunk = _chunk.Chunk;
 
 const _value = @import("value.zig");
 const Value = _value.Value;
+const Obj = _value.Obj;
+const ObjString = _value.ObjString;
 
 const _debug = @import("debug.zig");
 
 const _compiler = @import("compiler.zig");
+
+const _object = @import("object.zig");
 
 pub const InterpretResult = enum { ok, compile_error, runtime_error };
 
@@ -27,23 +31,46 @@ pub const VM = struct {
     stack: []Value,
     stack_top: [*]Value,
 
+    objects: ?*Obj,
+
     pub fn init(alloc: std.mem.Allocator) VM {
         // it's kinda ugly leaving undefined fields
         // but, interpret will make sure it's fine for chunk and ip
         var vm = VM{
             .alloc = alloc,
-            .chunk = undefined,
-            .ip = undefined,
+            .chunk = undefined, // set by interpret (the entry point)
+            .ip = undefined, // set by interpret
             .stack = alloc.alloc(Value, stack_max) catch unreachable,
             .stack_top = undefined,
+            .objects = null,
         };
-        vm.resetStack();
+        vm.resetStack(); // sets stack_top
         return vm;
     }
 
     pub fn deinit(vm: *VM) void {
         vm.alloc.free(vm.stack);
+        vm.freeObjects();
         vm.* = undefined;
+    }
+
+    fn freeObjects(vm: *VM) void {
+        var obj = vm.objects;
+        while (obj != null) {
+            const next = obj.?.next;
+            vm.freeObject(obj.?);
+            obj = next;
+        }
+    }
+
+    fn freeObject(vm: *VM, obj: *Obj) void {
+        switch (obj.type) {
+            .STRING => {
+                const string = @as(*ObjString, @ptrCast(obj));
+                vm.alloc.free(string.chars[0..string.len]);
+                vm.alloc.destroy(string);
+            },
+        }
     }
 
     pub fn resetStack(vm: *VM) void {
@@ -68,7 +95,7 @@ pub const VM = struct {
         var chunk = Chunk.init(vm.alloc);
         defer chunk.deinit();
 
-        if (!_compiler.compile(vm.alloc, source, &chunk)) {
+        if (!_compiler.compile(vm.alloc, &vm.objects, source, &chunk)) {
             return .compile_error;
         }
 
@@ -201,15 +228,29 @@ pub const VM = struct {
         return @call(.always_tail, run, .{vm});
     }
 
+    fn concatenate(vm: *VM) void {
+        const b = vm.pop().asString();
+        const a = vm.pop().asString();
+
+        const len = a.len + b.len;
+        var chars = vm.alloc.alloc(u8, len) catch unreachable;
+        std.mem.copy(u8, chars[0..a.len], a.chars[0..a.len]);
+        std.mem.copy(u8, chars[a.len..len], b.chars[0..b.len]);
+        const result = _object.takeString(vm.alloc, &vm.objects, chars);
+        vm.push(Value{ .OBJ = @ptrCast(result) });
+    }
+
     fn op_ADD(vm: *VM) InterpretResult {
-        if (vm.peek(0) != .NUMBER or vm.peek(1) != .NUMBER) {
-            vm.runtimeError("Operands must be numbers", .{});
+        if (vm.peek(0).isString() and vm.peek(1).isString()) {
+            vm.concatenate();
+        } else if (vm.peek(0) == .NUMBER and vm.peek(1) == .NUMBER) {
+            const b = vm.pop().NUMBER;
+            const a = vm.pop().NUMBER;
+            vm.push(Value{ .NUMBER = a + b });
+        } else {
+            vm.runtimeError("Operands must be two of either numbers or strings", .{});
             return .runtime_error;
         }
-
-        const b = vm.pop().NUMBER;
-        const a = vm.pop().NUMBER;
-        vm.push(Value{ .NUMBER = a + b });
 
         return @call(.always_tail, run, .{vm});
     }

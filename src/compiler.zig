@@ -12,14 +12,20 @@ const TokenType = _scanner.TokenType;
 const Token = _scanner.Token;
 const Scanner = _scanner.Scanner;
 
+const _object = @import("object.zig");
+
 const _debug = @import("debug.zig");
 
 const debug_print_code = true;
 
-pub fn compile(alloc: std.mem.Allocator, source: []const u8, chunk: *Chunk) bool {
-    _ = alloc;
+pub fn compile(
+    alloc: std.mem.Allocator,
+    vm_objects: *?*_value.Obj, // the parser can allocate, so hence needs the GC list
+    source: []const u8,
+    chunk: *Chunk,
+) bool {
     var scanner = Scanner.init(source);
-    var parser = Parser.init(&scanner, chunk);
+    var parser = Parser.init(alloc, vm_objects, &scanner, chunk);
 
     parser.advance();
     parser.expression();
@@ -72,7 +78,7 @@ const parse_rules: [std.meta.fields(TokenType).len]ParseRule = init: {
     rules[@intFromEnum(TokenType.LT)]          = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .COMPARISON };
     rules[@intFromEnum(TokenType.LEQ)]         = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .COMPARISON };
     rules[@intFromEnum(TokenType.IDENTIFIER)]  = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.STRING)]      = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
+    rules[@intFromEnum(TokenType.STRING)]      = .{ .prefix = &Parser.string,   .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.NUMBER)]      = .{ .prefix = &Parser.number,   .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.AND)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.CLASS)]       = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
@@ -97,6 +103,9 @@ const parse_rules: [std.meta.fields(TokenType).len]ParseRule = init: {
 };
 
 const Parser = struct {
+    alloc: std.mem.Allocator,
+    vm_objects: *?*_value.Obj,
+
     scanner: *Scanner,
     compiling_chunk: *Chunk,
     current: Token,
@@ -104,8 +113,15 @@ const Parser = struct {
     had_error: bool,
     panic_mode: bool,
 
-    fn init(scanner: *Scanner, chunk: *Chunk) Parser {
+    fn init(
+        alloc: std.mem.Allocator,
+        vm_objects: *?*_value.Obj,
+        scanner: *Scanner,
+        chunk: *Chunk,
+    ) Parser {
         var parser = Parser{
+            .alloc = alloc,
+            .vm_objects = vm_objects,
             .scanner = scanner,
             .compiling_chunk = chunk,
             .current = undefined,
@@ -197,6 +213,14 @@ const Parser = struct {
     fn number(parser: *Parser) void {
         const value = std.fmt.parseFloat(f64, parser.previous.lexeme) catch unreachable; // I don't we can error (?)
         parser.emitConstant(Value{ .NUMBER = value });
+    }
+
+    fn string(parser: *Parser) void {
+        parser.emitConstant(Value{ .OBJ = @ptrCast(_object.copyString(
+            parser.alloc,
+            parser.vm_objects,
+            parser.previous.lexeme[1 .. parser.previous.lexeme.len - 1],
+        )) });
     }
 
     fn grouping(parser: *Parser) void {
