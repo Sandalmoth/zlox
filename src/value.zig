@@ -32,5 +32,20 @@ pub const ValueArray = struct {
 };
 
 pub fn printValue(value: Value) void {
-    std.debug.print("{}", .{value});
+    switch (value) {
+        .BOOL => |x| {
+            std.debug.print("{}", .{x});
+        },
+        .NIL => {
+            std.debug.print("nil", .{});
+        },
+        .NUMBER => |x| {
+            std.debug.print("{}", .{x});
+        },
+    }
+}
+
+pub fn valuesEqual(a: Value, b: Value) bool {
+    // NOTE what if we had an actual pointer in a value?
+    return std.meta.eql(a, b);
 }

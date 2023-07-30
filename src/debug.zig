@@ -32,10 +32,17 @@ pub fn disassembleInstruction(chunk: Chunk, offset: usize) usize {
     switch (instruction) {
         .CONST => return constantInstruction("OP_CONST", chunk, offset),
         .CONST_LONG => return constantLongInstruction("OP_CONST_LONG", chunk, offset),
+        .NIL => return simpleInstruction("OP_NIL", offset),
+        .TRUE => return simpleInstruction("OP_TRUE", offset),
+        .FALSE => return simpleInstruction("OP_FALSE", offset),
+        .EQUAL => return simpleInstruction("OP_EQUAL", offset),
+        .GT => return simpleInstruction("OP_GT", offset),
+        .LT => return simpleInstruction("OP_LT", offset),
         .ADD => return simpleInstruction("OP_ADD", offset),
         .SUB => return simpleInstruction("OP_SUB", offset),
         .MUL => return simpleInstruction("OP_MUL", offset),
         .DIV => return simpleInstruction("OP_DIV", offset),
+        .NOT => return simpleInstruction("OP_NOT", offset),
         .NEGATE => return simpleInstruction("OP_NEGATE", offset),
         .RETURN => return simpleInstruction("OP_RETURN", offset),
     }

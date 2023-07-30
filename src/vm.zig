@@ -106,10 +106,17 @@ pub const VM = struct {
         switch (instruction) {
             .CONST => return @call(.always_tail, op_CONST, .{vm}),
             .CONST_LONG => @panic("CONST_LONG not implemented"),
+            .NIL => @call(.always_tail, op_NIL, .{vm}),
+            .TRUE => @call(.always_tail, op_TRUE, .{vm}),
+            .FALSE => @call(.always_tail, op_FALSE, .{vm}),
+            .EQUAL => @call(.always_tail, op_EQUAL, .{vm}),
+            .GT => @call(.always_tail, op_GT, .{vm}),
+            .LT => @call(.always_tail, op_LT, .{vm}),
             .ADD => @call(.always_tail, op_ADD, .{vm}),
             .SUB => @call(.always_tail, op_SUB, .{vm}),
             .MUL => @call(.always_tail, op_MUL, .{vm}),
             .DIV => @call(.always_tail, op_DIV, .{vm}),
+            .NOT => @call(.always_tail, op_NOT, .{vm}),
             .NEGATE => return @call(.always_tail, op_NEGATE, .{vm}),
             .RETURN => return @call(.always_tail, op_RETURN, .{vm}),
         }
@@ -123,6 +130,64 @@ pub const VM = struct {
         // _value.printValue(constant);
         // std.debug.print("\n", .{});
 
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_NIL(vm: *VM) InterpretResult {
+        vm.push(Value{ .NIL = {} });
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_TRUE(vm: *VM) InterpretResult {
+        vm.push(Value{ .BOOL = true });
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_FALSE(vm: *VM) InterpretResult {
+        vm.push(Value{ .BOOL = false });
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_EQUAL(vm: *VM) InterpretResult {
+        const a = vm.pop();
+        const b = vm.pop();
+        vm.push(Value{ .BOOL = _value.valuesEqual(a, b) });
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_GT(vm: *VM) InterpretResult {
+        if (vm.peek(0) != .NUMBER or vm.peek(1) != .NUMBER) {
+            vm.runtimeError("Operands must be numbers", .{});
+            return .runtime_error;
+        }
+
+        const b = vm.pop().NUMBER;
+        const a = vm.pop().NUMBER;
+        vm.push(Value{ .BOOL = a > b });
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_LT(vm: *VM) InterpretResult {
+        if (vm.peek(0) != .NUMBER or vm.peek(1) != .NUMBER) {
+            vm.runtimeError("Operands must be numbers", .{});
+            return .runtime_error;
+        }
+
+        const b = vm.pop().NUMBER;
+        const a = vm.pop().NUMBER;
+        vm.push(Value{ .BOOL = a < b });
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn isFalsy(value: Value) bool {
+        return value == .NIL or (value == .BOOL and !value.BOOL);
+    }
+
+    fn op_NOT(vm: *VM) InterpretResult {
+        vm.push(Value{ .BOOL = isFalsy(vm.pop()) });
         return @call(.always_tail, run, .{vm});
     }
 

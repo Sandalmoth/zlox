@@ -63,31 +63,31 @@ const parse_rules: [std.meta.fields(TokenType).len]ParseRule = init: {
     rules[@intFromEnum(TokenType.SEMI)]        = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.SLASH)]       = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .FACTOR };
     rules[@intFromEnum(TokenType.STAR)]        = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .FACTOR };
-    rules[@intFromEnum(TokenType.NOT)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.NOT_EQUAL)]   = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
+    rules[@intFromEnum(TokenType.NOT)]         = .{ .prefix = &Parser.unary,    .infix = null,           .precedence = .NONE };
+    rules[@intFromEnum(TokenType.NOT_EQUAL)]   = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .EQUALITY };
     rules[@intFromEnum(TokenType.EQUAL)]       = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.EQUAL_EQUAL)] = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.GT)]          = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.GEQ)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.LT)]          = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.LEQ)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
+    rules[@intFromEnum(TokenType.EQUAL_EQUAL)] = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .EQUALITY };
+    rules[@intFromEnum(TokenType.GT)]          = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .COMPARISON };
+    rules[@intFromEnum(TokenType.GEQ)]         = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .COMPARISON };
+    rules[@intFromEnum(TokenType.LT)]          = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .COMPARISON };
+    rules[@intFromEnum(TokenType.LEQ)]         = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .COMPARISON };
     rules[@intFromEnum(TokenType.IDENTIFIER)]  = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.STRING)]      = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.NUMBER)]      = .{ .prefix = &Parser.number,   .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.AND)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.CLASS)]       = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.ELSE)]        = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.FALSE)]       = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
+    rules[@intFromEnum(TokenType.FALSE)]       = .{ .prefix = &Parser.literal,  .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.FOR)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.FUN)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.IF)]          = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.NIL)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
+    rules[@intFromEnum(TokenType.NIL)]         = .{ .prefix = &Parser.literal,  .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.OR)]          = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.PRINT)]       = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.RETURN)]      = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.SUPER)]       = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.THIS)]        = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.TRUE)]        = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
+    rules[@intFromEnum(TokenType.TRUE)]        = .{ .prefix = &Parser.literal,  .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.VAR)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.WHILE)]       = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.ERROR)]       = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
@@ -155,6 +155,11 @@ const Parser = struct {
         parser.currentChunk().writeOp(op, parser.previous.line);
     }
 
+    fn emitOps(parser: *Parser, op1: OpCode, op2: OpCode) void {
+        parser.currentChunk().writeOp(op1, parser.previous.line);
+        parser.currentChunk().writeOp(op2, parser.previous.line);
+    }
+
     fn emitOpByte(parser: *Parser, op: OpCode, byte: u8) void {
         // I suspect this will be more useful than emitBytes
         parser.currentChunk().writeOp(op, parser.previous.line);
@@ -205,6 +210,7 @@ const Parser = struct {
         parser.parsePrecedence(.UNARY);
 
         switch (op_type) {
+            .NOT => parser.emitOp(.NOT),
             .MINUS => parser.emitOp(.NEGATE),
             else => unreachable,
         }
@@ -216,10 +222,25 @@ const Parser = struct {
         parser.parsePrecedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
 
         switch (op_type) {
+            .NOT_EQUAL => parser.emitOps(.EQUAL, .NOT),
+            .EQUAL_EQUAL => parser.emitOp(.EQUAL),
+            .GT => parser.emitOp(.GT),
+            .GEQ => parser.emitOps(.LT, .NOT),
+            .LT => parser.emitOp(.LT),
+            .LEQ => parser.emitOps(.GT, .NOT),
             .PLUS => parser.emitOp(.ADD),
             .MINUS => parser.emitOp(.SUB),
             .STAR => parser.emitOp(.MUL),
             .SLASH => parser.emitOp(.DIV),
+            else => unreachable,
+        }
+    }
+
+    fn literal(parser: *Parser) void {
+        switch (parser.previous.type) {
+            .FALSE => parser.emitOp(.FALSE),
+            .NIL => parser.emitOp(.NIL),
+            .TRUE => parser.emitOp(.TRUE),
             else => unreachable,
         }
     }
