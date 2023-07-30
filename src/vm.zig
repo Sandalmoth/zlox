@@ -9,6 +9,8 @@ const Value = _value.Value;
 
 const _debug = @import("debug.zig");
 
+const _compiler = @import("compiler.zig");
+
 pub const InterpretResult = enum { ok, compile_error, runtime_error };
 
 const stack_max = 256;
@@ -58,10 +60,13 @@ pub const VM = struct {
         return vm.stack_top[0];
     }
 
-    pub fn interpret(vm: *VM, chunk: *Chunk) InterpretResult {
-        vm.chunk = chunk;
-        vm.ip = vm.chunk.code.items.ptr;
-        return vm.run();
+    pub fn interpret(vm: *VM, source: []const u8) InterpretResult {
+        _compiler.compile(vm.alloc, source);
+        return .ok;
+
+        // vm.chunk = chunk;
+        // vm.ip = vm.chunk.code.items.ptr;
+        // return vm.run();
     }
 
     /// run reads bytecode and dispatches functions
