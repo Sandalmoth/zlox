@@ -191,7 +191,7 @@ const Parser = struct {
 
     fn number(parser: *Parser) void {
         const value = std.fmt.parseFloat(f64, parser.previous.lexeme) catch unreachable; // I don't we can error (?)
-        parser.emitConstant(value);
+        parser.emitConstant(Value{ .NUMBER = value });
     }
 
     fn grouping(parser: *Parser) void {

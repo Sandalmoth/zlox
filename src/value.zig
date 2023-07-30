@@ -1,6 +1,16 @@
 const std = @import("std");
 
-pub const Value = f64;
+pub const ValueType = enum {
+    BOOL,
+    NIL,
+    NUMBER,
+};
+
+pub const Value = union(ValueType) {
+    BOOL: bool,
+    NIL: void,
+    NUMBER: f64,
+};
 
 pub const ValueArray = struct {
     values: std.ArrayList(Value),

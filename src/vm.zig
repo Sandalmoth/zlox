@@ -60,6 +60,10 @@ pub const VM = struct {
         return vm.stack_top[0];
     }
 
+    pub fn peek(vm: *VM, distance: usize) Value {
+        return (vm.stack_top - 1 - distance)[0];
+    }
+
     pub fn interpret(vm: *VM, source: []const u8) InterpretResult {
         var chunk = Chunk.init(vm.alloc);
         defer chunk.deinit();
@@ -123,39 +127,63 @@ pub const VM = struct {
     }
 
     fn op_NEGATE(vm: *VM) InterpretResult {
-        vm.push(-vm.pop());
+        if (vm.peek(0) != .NUMBER) {
+            vm.runtimeError("Operand must be a number", .{});
+            return .runtime_error;
+        }
+        vm.push(Value{ .NUMBER = -vm.pop().NUMBER });
 
         return @call(.always_tail, run, .{vm});
     }
 
     fn op_ADD(vm: *VM) InterpretResult {
-        const b = vm.pop();
-        const a = vm.pop();
-        vm.push(a + b);
+        if (vm.peek(0) != .NUMBER or vm.peek(1) != .NUMBER) {
+            vm.runtimeError("Operands must be numbers", .{});
+            return .runtime_error;
+        }
+
+        const b = vm.pop().NUMBER;
+        const a = vm.pop().NUMBER;
+        vm.push(Value{ .NUMBER = a + b });
 
         return @call(.always_tail, run, .{vm});
     }
 
     fn op_SUB(vm: *VM) InterpretResult {
-        const b = vm.pop();
-        const a = vm.pop();
-        vm.push(a - b);
+        if (vm.peek(0) != .NUMBER or vm.peek(1) != .NUMBER) {
+            vm.runtimeError("Operands must be numbers", .{});
+            return .runtime_error;
+        }
+
+        const b = vm.pop().NUMBER;
+        const a = vm.pop().NUMBER;
+        vm.push(Value{ .NUMBER = a - b });
 
         return @call(.always_tail, run, .{vm});
     }
 
     fn op_MUL(vm: *VM) InterpretResult {
-        const b = vm.pop();
-        const a = vm.pop();
-        vm.push(a * b);
+        if (vm.peek(0) != .NUMBER or vm.peek(1) != .NUMBER) {
+            vm.runtimeError("Operands must be numbers", .{});
+            return .runtime_error;
+        }
+
+        const b = vm.pop().NUMBER;
+        const a = vm.pop().NUMBER;
+        vm.push(Value{ .NUMBER = a * b });
 
         return @call(.always_tail, run, .{vm});
     }
 
     fn op_DIV(vm: *VM) InterpretResult {
-        const b = vm.pop();
-        const a = vm.pop();
-        vm.push(a / b);
+        if (vm.peek(0) != .NUMBER or vm.peek(1) != .NUMBER) {
+            vm.runtimeError("Operands must be numbers", .{});
+            return .runtime_error;
+        }
+
+        const b = vm.pop().NUMBER;
+        const a = vm.pop().NUMBER;
+        vm.push(Value{ .NUMBER = a / b });
 
         return @call(.always_tail, run, .{vm});
     }
@@ -164,5 +192,15 @@ pub const VM = struct {
         _value.printValue(vm.pop());
         std.debug.print("\n", .{});
         return .ok;
+    }
+
+    fn runtimeError(vm: *VM, comptime fmt: []const u8, args: anytype) void {
+        std.debug.print(fmt, args);
+
+        const instruction: usize = @intFromPtr(vm.ip) - @intFromPtr(vm.chunk.code.items.ptr) - 1;
+        const line = vm.chunk.lines.items[instruction];
+        std.debug.print("\n[line {}] in script\n", .{line});
+
+        vm.resetStack();
     }
 };
