@@ -1,9 +1,5 @@
 const std = @import("std");
 
-const _chunk = @import("chunk.zig");
-const Chunk = _chunk.Chunk;
-const OpCode = _chunk.OpCode;
-
 const _vm = @import("vm.zig");
 const VM = _vm.VM;
 

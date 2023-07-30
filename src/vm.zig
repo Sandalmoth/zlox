@@ -1,8 +1,8 @@
 const std = @import("std");
 
 const _chunk = @import("chunk.zig");
-const Chunk = _chunk.Chunk;
 const OpCode = _chunk.OpCode;
+const Chunk = _chunk.Chunk;
 
 const _value = @import("value.zig");
 const Value = _value.Value;
@@ -61,12 +61,17 @@ pub const VM = struct {
     }
 
     pub fn interpret(vm: *VM, source: []const u8) InterpretResult {
-        _compiler.compile(vm.alloc, source);
-        return .ok;
+        var chunk = Chunk.init(vm.alloc);
+        defer chunk.deinit();
 
-        // vm.chunk = chunk;
-        // vm.ip = vm.chunk.code.items.ptr;
-        // return vm.run();
+        if (!_compiler.compile(vm.alloc, source, &chunk)) {
+            return .compile_error;
+        }
+
+        vm.chunk = &chunk;
+        vm.ip = vm.chunk.code.items.ptr;
+
+        return vm.run();
     }
 
     /// run reads bytecode and dispatches functions

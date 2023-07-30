@@ -82,8 +82,7 @@ pub const Scanner = struct {
     current: usize,
     line: u32, // not for indexing, so doesn't have to be usize
 
-    pub fn init(alloc: std.mem.Allocator, source: []const u8) Scanner {
-        _ = alloc;
+    pub fn init(source: []const u8) Scanner {
         return Scanner{
             .source = source,
             .start = 0,
