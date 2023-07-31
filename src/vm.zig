@@ -144,6 +144,7 @@ pub const VM = struct {
             .POP => return @call(.always_tail, op_POP, .{vm}),
             .GET_GLOBAL => return @call(.always_tail, op_GET_GLOBAL, .{vm}),
             .DEFINE_GLOBAL => return @call(.always_tail, op_DEFINE_GLOBAL, .{vm}),
+            .SET_GLOBAL => return @call(.always_tail, op_SET_GLOBAL, .{vm}),
             .EQUAL => return @call(.always_tail, op_EQUAL, .{vm}),
             .GT => return @call(.always_tail, op_GT, .{vm}),
             .LT => return @call(.always_tail, op_LT, .{vm}),
@@ -213,6 +214,22 @@ pub const VM = struct {
         const name = vm.chunk.constants.values.items[byte].asString();
         vm.globals.put(name.chars[0..name.len], vm.peek(0)) catch unreachable;
         _ = vm.pop();
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_SET_GLOBAL(vm: *VM) InterpretResult {
+        const byte = vm.ip[0];
+        vm.ip += 1;
+        const name = vm.chunk.constants.values.items[byte].asString();
+        // I guess if we remove this check then we get implicit variable decls
+        if (vm.globals.contains(name.chars[0..name.len])) {
+            vm.globals.put(name.chars[0..name.len], vm.peek(0)) catch unreachable;
+        } else {
+            vm.runtimeError("Undefined variable '{s}'", .{name.chars[0..name.len]});
+            return .runtime_error;
+        }
+        // NOTE why not pop?
 
         return @call(.always_tail, run, .{vm});
     }

@@ -53,8 +53,8 @@ const Precedence = enum {
 };
 
 const ParseRule = struct {
-    prefix: ?*const (fn (*Parser) void),
-    infix: ?*const (fn (*Parser) void),
+    prefix: ?*const (fn (*Parser, bool) void),
+    infix: ?*const (fn (*Parser, bool) void),
     precedence: Precedence,
 };
 
@@ -283,12 +283,14 @@ const Parser = struct {
         }
     }
 
-    fn number(parser: *Parser) void {
+    fn number(parser: *Parser, can_assign: bool) void {
+        _ = can_assign;
         const value = std.fmt.parseFloat(f64, parser.previous.lexeme) catch unreachable; // I don't we can error (?)
         parser.emitConstant(Value{ .NUMBER = value });
     }
 
-    fn string(parser: *Parser) void {
+    fn string(parser: *Parser, can_assign: bool) void {
+        _ = can_assign;
         parser.emitConstant(Value{ .OBJ = @ptrCast(_object.copyString(
             parser.alloc,
             parser.vm_objects,
@@ -296,21 +298,29 @@ const Parser = struct {
         )) });
     }
 
-    fn namedVariable(parser: *Parser, name: Token) void {
+    fn namedVariable(parser: *Parser, name: Token, can_assign: bool) void {
         const arg = parser.identifierConstant(name);
-        parser.emitOpByte(.GET_GLOBAL, arg);
+
+        if (can_assign and parser.match(.EQUAL)) {
+            parser.expression();
+            parser.emitOpByte(.SET_GLOBAL, arg);
+        } else {
+            parser.emitOpByte(.GET_GLOBAL, arg);
+        }
     }
 
-    fn variable(parser: *Parser) void {
-        parser.namedVariable(parser.previous);
+    fn variable(parser: *Parser, can_assign: bool) void {
+        parser.namedVariable(parser.previous, can_assign);
     }
 
-    fn grouping(parser: *Parser) void {
+    fn grouping(parser: *Parser, can_assign: bool) void {
+        _ = can_assign;
         parser.expression();
         parser.consume(.RIGHT_PAREN, "Expect ')' after expression");
     }
 
-    fn unary(parser: *Parser) void {
+    fn unary(parser: *Parser, can_assign: bool) void {
+        _ = can_assign;
         const op_type = parser.previous.type;
 
         parser.parsePrecedence(.UNARY);
@@ -322,7 +332,8 @@ const Parser = struct {
         }
     }
 
-    fn binary(parser: *Parser) void {
+    fn binary(parser: *Parser, can_assign: bool) void {
+        _ = can_assign;
         const op_type = parser.previous.type;
         const rule = getRule(op_type);
         parser.parsePrecedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
@@ -342,7 +353,8 @@ const Parser = struct {
         }
     }
 
-    fn literal(parser: *Parser) void {
+    fn literal(parser: *Parser, can_assign: bool) void {
+        _ = can_assign;
         switch (parser.previous.type) {
             .FALSE => parser.emitOp(.FALSE),
             .NIL => parser.emitOp(.NIL),
@@ -360,13 +372,18 @@ const Parser = struct {
         }
         std.debug.assert(prefix_rule != null);
 
-        prefix_rule.?(parser);
+        const can_assign = @intFromEnum(precedence) <= @intFromEnum(Precedence.ASSIGNMENT);
+        prefix_rule.?(parser, can_assign);
 
         while (@intFromEnum(precedence) <= @intFromEnum(getRule(parser.current.type).precedence)) {
             parser.advance();
             const infix_rule = getRule(parser.previous.type).infix;
             std.debug.assert(infix_rule != null); // shoudl be guaranteed
-            infix_rule.?(parser);
+            infix_rule.?(parser, can_assign);
+        }
+
+        if (can_assign and parser.match(.EQUAL)) {
+            parser.err("Invalid assignment target");
         }
     }
 

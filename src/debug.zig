@@ -38,6 +38,7 @@ pub fn disassembleInstruction(chunk: Chunk, offset: usize) usize {
         .POP => return simpleInstruction("OP_POP", offset),
         .GET_GLOBAL => return constantInstruction("OP_GET_GLOBAL", chunk, offset),
         .DEFINE_GLOBAL => return constantInstruction("OP_DEFINE_GLOBAL", chunk, offset),
+        .SET_GLOBAL => return constantInstruction("OP_SET_GLOBAL", chunk, offset),
         .EQUAL => return simpleInstruction("OP_EQUAL", offset),
         .GT => return simpleInstruction("OP_GT", offset),
         .LT => return simpleInstruction("OP_LT", offset),

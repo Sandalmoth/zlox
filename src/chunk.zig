@@ -14,6 +14,7 @@ pub const OpCode = enum {
     POP,
     GET_GLOBAL,
     DEFINE_GLOBAL,
+    SET_GLOBAL,
     EQUAL,
     GT,
     LT,
