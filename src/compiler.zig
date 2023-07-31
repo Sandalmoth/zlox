@@ -28,8 +28,11 @@ pub fn compile(
     var parser = Parser.init(alloc, vm_objects, &scanner, chunk);
 
     parser.advance();
-    parser.expression();
-    parser.consume(.EOF, "Expect end of expression");
+
+    while (!parser.match(.EOF)) {
+        parser.declaration();
+    }
+
     parser.endCompiler();
 
     return !parser.had_error;
@@ -149,6 +152,22 @@ const Parser = struct {
         parser.parsePrecedence(.ASSIGNMENT);
     }
 
+    fn printStatement(parser: *Parser) void {
+        parser.expression();
+        parser.consume(.SEMI, "Expect ';' after value");
+        parser.emitOp(.PRINT);
+    }
+
+    fn declaration(parser: *Parser) void {
+        parser.statement();
+    }
+
+    fn statement(parser: *Parser) void {
+        if (parser.match(.PRINT)) {
+            parser.printStatement();
+        }
+    }
+
     fn consume(parser: *Parser, t: TokenType, message: []const u8) void {
         if (parser.current.type == t) {
             parser.advance();
@@ -156,6 +175,18 @@ const Parser = struct {
         }
 
         parser.errAtCurrent(message);
+    }
+
+    fn match(parser: *Parser, t: TokenType) bool {
+        if (!parser.check(t)) {
+            return false;
+        }
+        parser.advance();
+        return true;
+    }
+
+    inline fn check(parser: *Parser, t: TokenType) bool {
+        return parser.current.type == t;
     }
 
     fn currentChunk(parser: *Parser) *Chunk {

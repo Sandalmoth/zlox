@@ -20,6 +20,7 @@ pub const OpCode = enum {
     DIV,
     NOT,
     NEGATE,
+    PRINT,
     RETURN,
 };
 

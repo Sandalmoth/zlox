@@ -31,6 +31,8 @@ pub const VM = struct {
     stack: []Value,
     stack_top: [*]Value,
 
+    // NOTE i decided to skip string interning
+    // it's cool, but not that exciting to me right now
     objects: ?*Obj,
 
     pub fn init(alloc: std.mem.Allocator) VM {
@@ -133,20 +135,26 @@ pub const VM = struct {
         switch (instruction) {
             .CONST => return @call(.always_tail, op_CONST, .{vm}),
             .CONST_LONG => @panic("CONST_LONG not implemented"),
-            .NIL => @call(.always_tail, op_NIL, .{vm}),
-            .TRUE => @call(.always_tail, op_TRUE, .{vm}),
-            .FALSE => @call(.always_tail, op_FALSE, .{vm}),
-            .EQUAL => @call(.always_tail, op_EQUAL, .{vm}),
-            .GT => @call(.always_tail, op_GT, .{vm}),
-            .LT => @call(.always_tail, op_LT, .{vm}),
-            .ADD => @call(.always_tail, op_ADD, .{vm}),
-            .SUB => @call(.always_tail, op_SUB, .{vm}),
-            .MUL => @call(.always_tail, op_MUL, .{vm}),
-            .DIV => @call(.always_tail, op_DIV, .{vm}),
-            .NOT => @call(.always_tail, op_NOT, .{vm}),
+            .NIL => return @call(.always_tail, op_NIL, .{vm}),
+            .TRUE => return @call(.always_tail, op_TRUE, .{vm}),
+            .FALSE => return @call(.always_tail, op_FALSE, .{vm}),
+            .EQUAL => return @call(.always_tail, op_EQUAL, .{vm}),
+            .GT => return @call(.always_tail, op_GT, .{vm}),
+            .LT => return @call(.always_tail, op_LT, .{vm}),
+            .ADD => return @call(.always_tail, op_ADD, .{vm}),
+            .SUB => return @call(.always_tail, op_SUB, .{vm}),
+            .MUL => return @call(.always_tail, op_MUL, .{vm}),
+            .DIV => return @call(.always_tail, op_DIV, .{vm}),
+            .NOT => return @call(.always_tail, op_NOT, .{vm}),
             .NEGATE => return @call(.always_tail, op_NEGATE, .{vm}),
+            .PRINT => return @call(.always_tail, op_PRINT, .{vm}),
             .RETURN => return @call(.always_tail, op_RETURN, .{vm}),
         }
+
+        // we mutually recur between run and ops
+        // until returning an InterpretResult
+        // so getting here should be impossible
+        unreachable;
     }
 
     fn op_CONST(vm: *VM) InterpretResult {
@@ -294,9 +302,15 @@ pub const VM = struct {
         return @call(.always_tail, run, .{vm});
     }
 
-    fn op_RETURN(vm: *VM) InterpretResult {
+    fn op_PRINT(vm: *VM) InterpretResult {
         _value.printValue(vm.pop());
         std.debug.print("\n", .{});
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_RETURN(vm: *VM) InterpretResult {
+        _ = vm;
         return .ok;
     }
 

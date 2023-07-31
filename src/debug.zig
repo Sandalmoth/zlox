@@ -44,6 +44,7 @@ pub fn disassembleInstruction(chunk: Chunk, offset: usize) usize {
         .DIV => return simpleInstruction("OP_DIV", offset),
         .NOT => return simpleInstruction("OP_NOT", offset),
         .NEGATE => return simpleInstruction("OP_NEGATE", offset),
+        .PRINT => return simpleInstruction("OP_PRINT", offset),
         .RETURN => return simpleInstruction("OP_RETURN", offset),
     }
 }
