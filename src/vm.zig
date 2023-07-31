@@ -31,6 +31,7 @@ pub const VM = struct {
     stack: []Value,
     stack_top: [*]Value,
 
+    globals: std.StringHashMap(Value),
     // NOTE i decided to skip string interning
     // it's cool, but not that exciting to me right now
     objects: ?*Obj,
@@ -44,6 +45,7 @@ pub const VM = struct {
             .ip = undefined, // set by interpret
             .stack = alloc.alloc(Value, stack_max) catch unreachable,
             .stack_top = undefined,
+            .globals = std.StringHashMap(Value).init(alloc),
             .objects = null,
         };
         vm.resetStack(); // sets stack_top
@@ -52,6 +54,7 @@ pub const VM = struct {
 
     pub fn deinit(vm: *VM) void {
         vm.alloc.free(vm.stack);
+        vm.globals.deinit(); // note, keys are freed by freeObjects
         vm.freeObjects();
         vm.* = undefined;
     }
@@ -138,6 +141,9 @@ pub const VM = struct {
             .NIL => return @call(.always_tail, op_NIL, .{vm}),
             .TRUE => return @call(.always_tail, op_TRUE, .{vm}),
             .FALSE => return @call(.always_tail, op_FALSE, .{vm}),
+            .POP => return @call(.always_tail, op_POP, .{vm}),
+            .GET_GLOBAL => return @call(.always_tail, op_GET_GLOBAL, .{vm}),
+            .DEFINE_GLOBAL => return @call(.always_tail, op_DEFINE_GLOBAL, .{vm}),
             .EQUAL => return @call(.always_tail, op_EQUAL, .{vm}),
             .GT => return @call(.always_tail, op_GT, .{vm}),
             .LT => return @call(.always_tail, op_LT, .{vm}),
@@ -180,6 +186,34 @@ pub const VM = struct {
 
     fn op_FALSE(vm: *VM) InterpretResult {
         vm.push(Value{ .BOOL = false });
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_POP(vm: *VM) InterpretResult {
+        _ = vm.pop();
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_GET_GLOBAL(vm: *VM) InterpretResult {
+        const byte = vm.ip[0];
+        vm.ip += 1;
+        const name = vm.chunk.constants.values.items[byte].asString();
+        const value = vm.globals.get(name.chars[0..name.len]) orelse {
+            vm.runtimeError("Undefined variable '{s}'", .{name.chars[0..name.len]});
+            return .runtime_error;
+        };
+        vm.push(value);
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_DEFINE_GLOBAL(vm: *VM) InterpretResult {
+        const byte = vm.ip[0];
+        vm.ip += 1;
+        const name = vm.chunk.constants.values.items[byte].asString();
+        vm.globals.put(name.chars[0..name.len], vm.peek(0)) catch unreachable;
+        _ = vm.pop();
+
         return @call(.always_tail, run, .{vm});
     }
 

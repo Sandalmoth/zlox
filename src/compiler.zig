@@ -80,7 +80,7 @@ const parse_rules: [std.meta.fields(TokenType).len]ParseRule = init: {
     rules[@intFromEnum(TokenType.GEQ)]         = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .COMPARISON };
     rules[@intFromEnum(TokenType.LT)]          = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .COMPARISON };
     rules[@intFromEnum(TokenType.LEQ)]         = .{ .prefix = null,             .infix = &Parser.binary, .precedence = .COMPARISON };
-    rules[@intFromEnum(TokenType.IDENTIFIER)]  = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
+    rules[@intFromEnum(TokenType.IDENTIFIER)]  = .{ .prefix = &Parser.variable, .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.STRING)]      = .{ .prefix = &Parser.string,   .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.NUMBER)]      = .{ .prefix = &Parser.number,   .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.AND)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
@@ -152,19 +152,61 @@ const Parser = struct {
         parser.parsePrecedence(.ASSIGNMENT);
     }
 
+    fn varDeclaration(parser: *Parser) void {
+        const global = parser.parseVariable("Expect variable name");
+
+        if (parser.match(.EQUAL)) {
+            parser.expression();
+        } else {
+            parser.emitOp(.NIL); // aah, so an empty declaration sets to nil
+        }
+        parser.consume(.SEMI, "Expect ';' after variable declaration");
+
+        parser.defineVariable(global);
+    }
+
+    fn expressionStatement(parser: *Parser) void {
+        parser.expression();
+        parser.consume(.SEMI, "Expect ';' after expression");
+        parser.emitOp(.POP);
+    }
+
     fn printStatement(parser: *Parser) void {
         parser.expression();
         parser.consume(.SEMI, "Expect ';' after value");
         parser.emitOp(.PRINT);
     }
 
+    fn synchronize(parser: *Parser) void {
+        parser.panic_mode = false;
+        while (parser.current.type != .EOF) {
+            if (parser.previous.type == .SEMI) return;
+            switch (parser.current.type) {
+                .CLASS, .FUN, .VAR, .FOR, .IF, .WHILE, .PRINT, .RETURN => return,
+                else => {},
+            }
+
+            parser.advance();
+        }
+    }
+
     fn declaration(parser: *Parser) void {
-        parser.statement();
+        if (parser.match(.VAR)) {
+            parser.varDeclaration();
+        } else {
+            parser.statement();
+        }
+
+        if (parser.panic_mode) {
+            parser.synchronize();
+        }
     }
 
     fn statement(parser: *Parser) void {
         if (parser.match(.PRINT)) {
             parser.printStatement();
+        } else {
+            parser.expressionStatement();
         }
     }
 
@@ -254,6 +296,15 @@ const Parser = struct {
         )) });
     }
 
+    fn namedVariable(parser: *Parser, name: Token) void {
+        const arg = parser.identifierConstant(name);
+        parser.emitOpByte(.GET_GLOBAL, arg);
+    }
+
+    fn variable(parser: *Parser) void {
+        parser.namedVariable(parser.previous);
+    }
+
     fn grouping(parser: *Parser) void {
         parser.expression();
         parser.consume(.RIGHT_PAREN, "Expect ')' after expression");
@@ -317,6 +368,21 @@ const Parser = struct {
             std.debug.assert(infix_rule != null); // shoudl be guaranteed
             infix_rule.?(parser);
         }
+    }
+
+    fn identifierConstant(parser: *Parser, name: Token) u8 {
+        return parser.makeConstant(Value{ .OBJ = @ptrCast(
+            _object.copyString(parser.alloc, parser.vm_objects, name.lexeme),
+        ) });
+    }
+
+    fn parseVariable(parser: *Parser, error_message: []const u8) u8 {
+        parser.consume(.IDENTIFIER, error_message);
+        return parser.identifierConstant(parser.previous);
+    }
+
+    fn defineVariable(parser: *Parser, global: u8) void {
+        parser.emitOpByte(.DEFINE_GLOBAL, global);
     }
 
     fn getRule(t: TokenType) *const ParseRule {
