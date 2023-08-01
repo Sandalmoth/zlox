@@ -25,7 +25,8 @@ pub fn compile(
     chunk: *Chunk,
 ) bool {
     var scanner = Scanner.init(source);
-    var parser = Parser.init(alloc, vm_objects, &scanner, chunk);
+    var compiler = Compiler.init();
+    var parser = Parser.init(alloc, vm_objects, &scanner, &compiler, chunk);
 
     parser.advance();
 
@@ -56,6 +57,29 @@ const ParseRule = struct {
     prefix: ?*const (fn (*Parser, bool) void),
     infix: ?*const (fn (*Parser, bool) void),
     precedence: Precedence,
+};
+
+const Local = struct {
+    name: Token,
+    depth: i32,
+};
+
+// why the actual fuck do we have a separate compiler and parser?
+// i assume it has something to do with local vars in functions?
+// and clox makes it a global too :(
+// hopefully just storing a reference in the parser should work
+const Compiler = struct {
+    locals: [std.math.maxInt(u8) + 1]Local,
+    n_locals: usize,
+    scope_depth: i32,
+
+    fn init() Compiler {
+        return Compiler{
+            .locals = undefined, // we shouldn't be accessing unused ones anyway
+            .n_locals = 0,
+            .scope_depth = 0,
+        };
+    }
 };
 
 const parse_rules: [std.meta.fields(TokenType).len]ParseRule = init: {
@@ -110,7 +134,9 @@ const Parser = struct {
     vm_objects: *?*_value.Obj,
 
     scanner: *Scanner,
+    compiler: *Compiler,
     compiling_chunk: *Chunk,
+
     current: Token,
     previous: Token,
     had_error: bool,
@@ -120,12 +146,14 @@ const Parser = struct {
         alloc: std.mem.Allocator,
         vm_objects: *?*_value.Obj,
         scanner: *Scanner,
+        compiler: *Compiler,
         chunk: *Chunk,
     ) Parser {
         var parser = Parser{
             .alloc = alloc,
             .vm_objects = vm_objects,
             .scanner = scanner,
+            .compiler = compiler,
             .compiling_chunk = chunk,
             .current = undefined,
             .previous = undefined,
@@ -150,6 +178,14 @@ const Parser = struct {
 
     fn expression(parser: *Parser) void {
         parser.parsePrecedence(.ASSIGNMENT);
+    }
+
+    fn block(parser: *Parser) void {
+        while (!parser.check(.RIGHT_CURLY) and !parser.check(.EOF)) {
+            parser.declaration();
+        }
+
+        parser.consume(.RIGHT_CURLY, "Expect '}' after block");
     }
 
     fn varDeclaration(parser: *Parser) void {
@@ -205,6 +241,10 @@ const Parser = struct {
     fn statement(parser: *Parser) void {
         if (parser.match(.PRINT)) {
             parser.printStatement();
+        } else if (parser.match(.LEFT_CURLY)) {
+            parser.beginScope();
+            parser.block();
+            parser.endScope();
         } else {
             parser.expressionStatement();
         }
@@ -283,6 +323,21 @@ const Parser = struct {
         }
     }
 
+    fn beginScope(parser: *Parser) void {
+        parser.compiler.scope_depth += 1;
+    }
+
+    fn endScope(parser: *Parser) void {
+        parser.compiler.scope_depth -= 1;
+
+        while (parser.compiler.n_locals > 0 and
+            parser.compiler.locals[parser.compiler.n_locals - 1].depth > parser.compiler.scope_depth)
+        {
+            parser.emitOp(.POP);
+            parser.compiler.n_locals -= 1;
+        }
+    }
+
     fn number(parser: *Parser, can_assign: bool) void {
         _ = can_assign;
         const value = std.fmt.parseFloat(f64, parser.previous.lexeme) catch unreachable; // I don't we can error (?)
@@ -299,13 +354,25 @@ const Parser = struct {
     }
 
     fn namedVariable(parser: *Parser, name: Token, can_assign: bool) void {
-        const arg = parser.identifierConstant(name);
+        var getOp: OpCode = undefined;
+        var setOp: OpCode = undefined;
+        var arg = parser.resolveLocal(name);
+        if (arg != -1) {
+            getOp = .GET_LOCAL;
+            setOp = .SET_LOCAL;
+        } else {
+            arg = parser.identifierConstant(name);
+            getOp = .GET_GLOBAL;
+            setOp = .SET_GLOBAL;
+        }
+        std.debug.assert(arg >= 0);
+        std.debug.assert(arg < std.math.maxInt(u8));
 
         if (can_assign and parser.match(.EQUAL)) {
             parser.expression();
-            parser.emitOpByte(.SET_GLOBAL, arg);
+            parser.emitOpByte(setOp, @intCast(arg));
         } else {
-            parser.emitOpByte(.GET_GLOBAL, arg);
+            parser.emitOpByte(getOp, @intCast(arg));
         }
     }
 
@@ -393,13 +460,81 @@ const Parser = struct {
         ) });
     }
 
+    fn identifiersEqual(a: Token, b: Token) bool {
+        return std.mem.eql(u8, a.lexeme, b.lexeme);
+    }
+
+    fn addLocal(parser: *Parser, name: Token) void {
+        if (parser.compiler.n_locals == std.math.maxInt(u8)) {
+            parser.err("Too many local variables in function");
+            return;
+        }
+
+        var local = &parser.compiler.locals[parser.compiler.n_locals];
+        parser.compiler.n_locals += 1;
+        local.name = name;
+        local.depth = -1;
+    }
+
+    fn declareVariable(parser: *Parser) void {
+        if (parser.compiler.scope_depth == 0) {
+            return;
+        }
+
+        const name = parser.previous;
+
+        // minor rewrite to prevent underflow of usize
+        var i = parser.compiler.n_locals;
+        while (i > 0) : (i -= 1) {
+            const local = parser.compiler.locals[i - 1];
+            if (local.depth != -1 and local.depth < parser.compiler.scope_depth) {
+                break;
+            }
+
+            if (identifiersEqual(name, local.name)) {
+                parser.err("Already a variable with this name in this scope");
+            }
+        }
+
+        parser.addLocal(name);
+    }
+
     fn parseVariable(parser: *Parser, error_message: []const u8) u8 {
         parser.consume(.IDENTIFIER, error_message);
+
+        parser.declareVariable();
+        if (parser.compiler.scope_depth > 0) return 0;
+
         return parser.identifierConstant(parser.previous);
     }
 
+    fn markInitialized(parser: *Parser) void {
+        parser.compiler.locals[parser.compiler.n_locals - 1].depth =
+            parser.compiler.scope_depth;
+    }
+
     fn defineVariable(parser: *Parser, global: u8) void {
+        if (parser.compiler.scope_depth > 0) {
+            parser.markInitialized();
+            return;
+        }
+
         parser.emitOpByte(.DEFINE_GLOBAL, global);
+    }
+
+    fn resolveLocal(parser: *Parser, name: Token) i32 {
+        var i = parser.compiler.n_locals;
+        while (i > 0) : (i -= 1) {
+            const local = parser.compiler.locals[i - 1];
+            if (Parser.identifiersEqual(name, local.name)) {
+                if (local.depth == -1) {
+                    parser.err("Can't read local variable in its own initializer");
+                }
+                return @intCast(i - 1);
+            }
+        }
+
+        return -1;
     }
 
     fn getRule(t: TokenType) *const ParseRule {

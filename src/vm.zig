@@ -142,8 +142,10 @@ pub const VM = struct {
             .TRUE => return @call(.always_tail, op_TRUE, .{vm}),
             .FALSE => return @call(.always_tail, op_FALSE, .{vm}),
             .POP => return @call(.always_tail, op_POP, .{vm}),
+            .GET_LOCAL => return @call(.always_tail, op_GET_LOCAL, .{vm}),
             .GET_GLOBAL => return @call(.always_tail, op_GET_GLOBAL, .{vm}),
             .DEFINE_GLOBAL => return @call(.always_tail, op_DEFINE_GLOBAL, .{vm}),
+            .SET_LOCAL => return @call(.always_tail, op_SET_LOCAL, .{vm}),
             .SET_GLOBAL => return @call(.always_tail, op_SET_GLOBAL, .{vm}),
             .EQUAL => return @call(.always_tail, op_EQUAL, .{vm}),
             .GT => return @call(.always_tail, op_GT, .{vm}),
@@ -192,6 +194,22 @@ pub const VM = struct {
 
     fn op_POP(vm: *VM) InterpretResult {
         _ = vm.pop();
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_GET_LOCAL(vm: *VM) InterpretResult {
+        const slot = vm.ip[0];
+        vm.ip += 1;
+        vm.push(vm.stack[@intCast(slot)]);
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_SET_LOCAL(vm: *VM) InterpretResult {
+        const slot = vm.ip[0];
+        vm.ip += 1;
+        vm.stack[@intCast(slot)] = vm.peek(0);
+
         return @call(.always_tail, run, .{vm});
     }
 
