@@ -207,6 +207,50 @@ const Parser = struct {
         parser.emitOp(.POP);
     }
 
+    fn forStatement(parser: *Parser) void {
+        parser.beginScope();
+        parser.consume(.LEFT_PAREN, "Expect '(' after 'for'");
+        if (parser.match(.SEMI)) {
+            // no initializer here yo
+        } else if (parser.match(.VAR)) {
+            parser.varDeclaration();
+        } else {
+            parser.expressionStatement();
+        }
+
+        var loop_start = parser.currentChunk().code.items.len;
+        var exit_jump: ?usize = null;
+        if (!parser.match(.SEMI)) {
+            parser.expression();
+            parser.consume(.SEMI, "Expect ';' after loop condition");
+
+            exit_jump = parser.emitJump(.JUMP_IF_FALSE);
+            parser.emitOp(.POP);
+        }
+
+        if (!parser.match(.RIGHT_PAREN)) {
+            const body_jump = parser.emitJump(.JUMP);
+            const increment_start = parser.currentChunk().code.items.len;
+            parser.expression();
+            parser.emitOp(.POP);
+            parser.consume(.RIGHT_PAREN, "Expect ')' after for clauses");
+
+            parser.emitLoop(loop_start);
+            loop_start = increment_start;
+            parser.patchJump(body_jump);
+        }
+
+        parser.statement();
+        parser.emitLoop(loop_start);
+
+        if (exit_jump != null) {
+            parser.patchJump(exit_jump.?);
+            parser.emitOp(.POP);
+        }
+
+        parser.endScope();
+    }
+
     fn ifStatement(parser: *Parser) void {
         parser.consume(.LEFT_PAREN, "Expect '(' after 'if'");
         parser.expression();
@@ -273,6 +317,8 @@ const Parser = struct {
     fn statement(parser: *Parser) void {
         if (parser.match(.PRINT)) {
             parser.printStatement();
+        } else if (parser.match(.FOR)) {
+            parser.forStatement();
         } else if (parser.match(.IF)) {
             parser.ifStatement();
         } else if (parser.match(.WHILE)) {
