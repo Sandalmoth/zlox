@@ -159,6 +159,7 @@ pub const VM = struct {
             .PRINT => return @call(.always_tail, op_PRINT, .{vm}),
             .JUMP => return @call(.always_tail, op_JUMP, .{vm}),
             .JUMP_IF_FALSE => return @call(.always_tail, op_JUMP_IF_FALSE, .{vm}),
+            .LOOP => return @call(.always_tail, op_LOOP, .{vm}),
             .RETURN => return @call(.always_tail, op_RETURN, .{vm}),
         }
 
@@ -400,6 +401,17 @@ pub const VM = struct {
         if (isFalsy(vm.peek(0))) {
             vm.ip += offset;
         }
+
+        return @call(.always_tail, run, .{vm});
+    }
+
+    fn op_LOOP(vm: *VM) InterpretResult {
+        const byte1: usize = @intCast(vm.ip[0]);
+        vm.ip += 1;
+        const byte2: usize = @intCast(vm.ip[0]);
+        vm.ip += 1;
+        const offset = (byte1 << 8) | byte2;
+        vm.ip -= offset;
 
         return @call(.always_tail, run, .{vm});
     }

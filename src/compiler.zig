@@ -107,7 +107,7 @@ const parse_rules: [std.meta.fields(TokenType).len]ParseRule = init: {
     rules[@intFromEnum(TokenType.IDENTIFIER)]  = .{ .prefix = &Parser.variable, .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.STRING)]      = .{ .prefix = &Parser.string,   .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.NUMBER)]      = .{ .prefix = &Parser.number,   .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.AND)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
+    rules[@intFromEnum(TokenType.AND)]         = .{ .prefix = null,             .infix = &Parser.and_,   .precedence = .AND };
     rules[@intFromEnum(TokenType.CLASS)]       = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.ELSE)]        = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.FALSE)]       = .{ .prefix = &Parser.literal,  .infix = null,           .precedence = .NONE };
@@ -115,7 +115,7 @@ const parse_rules: [std.meta.fields(TokenType).len]ParseRule = init: {
     rules[@intFromEnum(TokenType.FUN)]         = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.IF)]          = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.NIL)]         = .{ .prefix = &Parser.literal,  .infix = null,           .precedence = .NONE };
-    rules[@intFromEnum(TokenType.OR)]          = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
+    rules[@intFromEnum(TokenType.OR)]          = .{ .prefix = null,             .infix = &Parser.or_,    .precedence = .OR };
     rules[@intFromEnum(TokenType.PRINT)]       = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.RETURN)]      = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.SUPER)]       = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
@@ -230,6 +230,21 @@ const Parser = struct {
         parser.emitOp(.PRINT);
     }
 
+    fn whileStatement(parser: *Parser) void {
+        const loop_start = parser.currentChunk().code.items.len;
+        parser.consume(.LEFT_PAREN, "Expect '(' after 'while'");
+        parser.expression();
+        parser.consume(.RIGHT_PAREN, "Expect ')' after condition");
+
+        const exit_jump = parser.emitJump(.JUMP_IF_FALSE);
+        parser.emitOp(.POP);
+        parser.statement();
+        parser.emitLoop(loop_start);
+
+        parser.patchJump(exit_jump);
+        parser.emitOp(.POP);
+    }
+
     fn synchronize(parser: *Parser) void {
         parser.panic_mode = false;
         while (parser.current.type != .EOF) {
@@ -260,6 +275,8 @@ const Parser = struct {
             parser.printStatement();
         } else if (parser.match(.IF)) {
             parser.ifStatement();
+        } else if (parser.match(.WHILE)) {
+            parser.whileStatement();
         } else if (parser.match(.LEFT_CURLY)) {
             parser.beginScope();
             parser.block();
@@ -312,6 +329,18 @@ const Parser = struct {
         // I suspect this will be more useful than emitBytes
         parser.currentChunk().writeOp(op, parser.previous.line);
         parser.currentChunk().write(byte, parser.previous.line);
+    }
+
+    fn emitLoop(parser: *Parser, loop_start: usize) void {
+        parser.emitOp(.LOOP);
+
+        const offset = parser.currentChunk().code.items.len - loop_start + 2;
+        if (offset > std.math.maxInt(u16)) {
+            parser.err("Loop body too large");
+        }
+
+        parser.emitByte(@intCast((offset >> 8) & 0xff));
+        parser.emitByte(@intCast(offset & 0xff));
     }
 
     fn emitJump(parser: *Parser, op: OpCode) usize {
@@ -379,6 +408,18 @@ const Parser = struct {
         _ = can_assign;
         const value = std.fmt.parseFloat(f64, parser.previous.lexeme) catch unreachable; // I don't we can error (?)
         parser.emitConstant(Value{ .NUMBER = value });
+    }
+
+    fn or_(parser: *Parser, can_assign: bool) void {
+        _ = can_assign;
+        const else_jump = parser.emitJump(.JUMP_IF_FALSE);
+        const end_jump = parser.emitJump(.JUMP);
+
+        parser.patchJump(else_jump);
+        parser.emitOp(.POP);
+
+        parser.parsePrecedence(.OR);
+        parser.patchJump(end_jump);
     }
 
     fn string(parser: *Parser, can_assign: bool) void {
@@ -557,6 +598,16 @@ const Parser = struct {
         }
 
         parser.emitOpByte(.DEFINE_GLOBAL, global);
+    }
+
+    fn and_(parser: *Parser, can_assign: bool) void {
+        _ = can_assign;
+        const end_jump = parser.emitJump(.JUMP_IF_FALSE);
+
+        parser.emitOp(.POP);
+        parser.parsePrecedence(.AND);
+
+        parser.patchJump(end_jump);
     }
 
     fn resolveLocal(parser: *Parser, name: Token) i32 {
