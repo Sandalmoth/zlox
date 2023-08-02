@@ -207,6 +207,23 @@ const Parser = struct {
         parser.emitOp(.POP);
     }
 
+    fn ifStatement(parser: *Parser) void {
+        parser.consume(.LEFT_PAREN, "Expect '(' after 'if'");
+        parser.expression();
+        parser.consume(.RIGHT_PAREN, "Expect ')' after condition");
+
+        const then_jump = parser.emitJump(.JUMP_IF_FALSE);
+        parser.emitOp(.POP); // get rid of the condition
+        parser.statement();
+        const else_jump = parser.emitJump(.JUMP);
+        parser.patchJump(then_jump);
+        parser.emitOp(.POP); // get rid of the condition
+        if (parser.match(.ELSE)) {
+            parser.statement();
+        }
+        parser.patchJump(else_jump);
+    }
+
     fn printStatement(parser: *Parser) void {
         parser.expression();
         parser.consume(.SEMI, "Expect ';' after value");
@@ -241,6 +258,8 @@ const Parser = struct {
     fn statement(parser: *Parser) void {
         if (parser.match(.PRINT)) {
             parser.printStatement();
+        } else if (parser.match(.IF)) {
+            parser.ifStatement();
         } else if (parser.match(.LEFT_CURLY)) {
             parser.beginScope();
             parser.block();
@@ -295,6 +314,13 @@ const Parser = struct {
         parser.currentChunk().write(byte, parser.previous.line);
     }
 
+    fn emitJump(parser: *Parser, op: OpCode) usize {
+        parser.emitOp(op);
+        parser.emitByte(0xff);
+        parser.emitByte(0xff);
+        return parser.currentChunk().code.items.len - 2;
+    }
+
     fn emitReturn(parser: *Parser) void {
         parser.emitOp(.RETURN);
     }
@@ -312,6 +338,17 @@ const Parser = struct {
 
     fn emitConstant(parser: *Parser, value: Value) void {
         parser.emitOpByte(.CONST, parser.makeConstant(value));
+    }
+
+    fn patchJump(parser: *Parser, offset: usize) void {
+        const jump = parser.currentChunk().code.items.len - offset - 2;
+
+        if (jump > std.math.maxInt(u16)) {
+            parser.err("Too much code to jump over");
+        }
+
+        parser.currentChunk().code.items[offset] = @intCast((jump >> 8) & 0xff);
+        parser.currentChunk().code.items[offset + 1] = @intCast(jump & 0xff);
     }
 
     fn endCompiler(parser: *Parser) void {

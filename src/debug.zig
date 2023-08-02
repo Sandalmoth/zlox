@@ -51,12 +51,15 @@ pub fn disassembleInstruction(chunk: Chunk, offset: usize) usize {
         .NOT => return simpleInstruction("OP_NOT", offset),
         .NEGATE => return simpleInstruction("OP_NEGATE", offset),
         .PRINT => return simpleInstruction("OP_PRINT", offset),
+        .JUMP => return jumpInstruction("OP_JUMP", 1, chunk, offset),
+        .JUMP_IF_FALSE => return jumpInstruction("OP_JUMP_IF_FALSE", 1, chunk, offset),
         .RETURN => return simpleInstruction("OP_RETURN", offset),
     }
 }
 
 fn simpleInstruction(name: []const u8, offset: usize) usize {
     std.debug.print("{s}\n", .{name});
+
     return offset + 1;
 }
 
@@ -65,13 +68,27 @@ fn constantInstruction(name: []const u8, chunk: Chunk, offset: usize) usize {
     std.debug.print("{s:<16} {:4} '", .{ name, constant });
     _value.printValue(chunk.constants.values.items[constant]);
     std.debug.print("'\n", .{});
+
     return offset + 2;
 }
 
 fn byteInstruction(name: []const u8, chunk: Chunk, offset: usize) usize {
     const slot = chunk.code.items[offset + 1];
     std.debug.print("{s:<16} {:4}\n", .{ name, slot });
+
     return offset + 2;
+}
+
+fn jumpInstruction(name: []const u8, sign: i32, chunk: Chunk, offset: usize) usize {
+    var jump: usize = @as(usize, @intCast(chunk.code.items[offset + 1])) << 8;
+    jump |= chunk.code.items[offset + 2];
+    std.debug.print("{s:<16} {:4} -> {}\n", .{
+        name,
+        offset,
+        @as(i32, @intCast(offset)) + 3 + sign * @as(i32, @intCast(jump)),
+    });
+
+    return offset + 3;
 }
 
 fn constantLongInstruction(name: []const u8, chunk: Chunk, offset: usize) usize {
@@ -83,5 +100,6 @@ fn constantLongInstruction(name: []const u8, chunk: Chunk, offset: usize) usize 
     std.debug.print("{s:<16} {:4} '", .{ name, constant });
     _value.printValue(chunk.constants.values.items[constant]);
     std.debug.print("'\n", .{});
+
     return offset + 4;
 }
