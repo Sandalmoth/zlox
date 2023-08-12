@@ -13,6 +13,7 @@ const Token = _scanner.Token;
 const Scanner = _scanner.Scanner;
 
 const _object = @import("object.zig");
+const ObjFunction = _object.ObjFunction;
 
 const _debug = @import("debug.zig");
 
@@ -23,10 +24,11 @@ pub fn compile(
     vm_objects: *?*_value.Obj, // the parser can allocate, so hence needs the GC list
     source: []const u8,
     chunk: *Chunk,
-) bool {
+) ?*ObjFunction {
     var scanner = Scanner.init(source);
-    var compiler = Compiler.init();
+    var compiler = Compiler.init(.SCRIPT);
     var parser = Parser.init(alloc, vm_objects, &scanner, &compiler, chunk);
+    compiler.init2(alloc, vm_objects);
 
     parser.advance();
 
@@ -34,9 +36,8 @@ pub fn compile(
         parser.declaration();
     }
 
-    parser.endCompiler();
-
-    return !parser.had_error;
+    const function = parser.endCompiler();
+    return if (parser.had_error) null else function;
 }
 
 const Precedence = enum {
@@ -64,21 +65,42 @@ const Local = struct {
     depth: i32,
 };
 
+const FunctionType = enum {
+    FUNCTION,
+    SCRIPT,
+};
+
 // why the actual fuck do we have a separate compiler and parser?
 // i assume it has something to do with local vars in functions?
 // and clox makes it a global too :(
 // hopefully just storing a reference in the parser should work
 const Compiler = struct {
+    function: *ObjFunction,
+    type: FunctionType,
+
     locals: [std.math.maxInt(u8) + 1]Local,
     n_locals: usize,
     scope_depth: i32,
 
-    fn init() Compiler {
+    fn init(typ: FunctionType) Compiler {
         return Compiler{
+            .function = undefined, // should be fine?
+            .type = typ,
             .locals = undefined, // we shouldn't be accessing unused ones anyway
             .n_locals = 0,
             .scope_depth = 0,
         };
+    }
+
+    // by god what have I done
+    fn init2(compiler: *Compiler, alloc: std.mem.Allocator, vm_objects: *?*_value.Obj) void {
+        // slight out of order compared to clox...
+        compiler.function = _object.newFunction(alloc, vm_objects);
+
+        var local = &compiler.locals[compiler.n_locals];
+        compiler.n_locals += 1;
+        local.depth = 0;
+        local.name.lexeme = ""; // are empty strings allowed?
     }
 };
 
@@ -354,8 +376,8 @@ const Parser = struct {
     }
 
     fn currentChunk(parser: *Parser) *Chunk {
-        // presumably this function will have different returns later
-        return parser.compiling_chunk;
+        // HAH, indeed it did serve a point
+        return &parser.compiler.function.chunk;
     }
 
     fn emitByte(parser: *Parser, byte: u8) void {
@@ -426,13 +448,24 @@ const Parser = struct {
         parser.currentChunk().code.items[offset + 1] = @intCast(jump & 0xff);
     }
 
-    fn endCompiler(parser: *Parser) void {
+    fn endCompiler(parser: *Parser) *ObjFunction {
         parser.emitReturn();
+
+        const function = parser.compiler.function;
+
         if (debug_print_code) {
             if (!parser.had_error) {
-                _debug.disassembleChunk(parser.currentChunk().*, "code");
+                _debug.disassembleChunk(
+                    parser.currentChunk().*,
+                    if (function.name != null)
+                        function.name.?.chars[0..function.name.?.len]
+                    else
+                        "<script>",
+                );
             }
         }
+
+        return function;
     }
 
     fn beginScope(parser: *Parser) void {

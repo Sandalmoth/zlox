@@ -14,6 +14,7 @@ const _debug = @import("debug.zig");
 const _compiler = @import("compiler.zig");
 
 const _object = @import("object.zig");
+const ObjFunction = _object.ObjFunction;
 
 pub const InterpretResult = enum { ok, compile_error, runtime_error };
 
@@ -70,6 +71,11 @@ pub const VM = struct {
 
     fn freeObject(vm: *VM, obj: *Obj) void {
         switch (obj.type) {
+            .FUNCTION => {
+                var function = @as(*ObjFunction, @ptrCast(obj));
+                function.chunk.deinit();
+                vm.alloc.destroy(function);
+            },
             .STRING => {
                 const string = @as(*ObjString, @ptrCast(obj));
                 vm.alloc.free(string.chars[0..string.len]);
@@ -100,7 +106,7 @@ pub const VM = struct {
         var chunk = Chunk.init(vm.alloc);
         defer chunk.deinit();
 
-        if (!_compiler.compile(vm.alloc, &vm.objects, source, &chunk)) {
+        if (_compiler.compile(vm.alloc, &vm.objects, source, &chunk) == null) {
             return .compile_error;
         }
 

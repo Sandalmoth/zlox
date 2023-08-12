@@ -4,6 +4,9 @@ const _value = @import("value.zig");
 const Obj = _value.Obj;
 const ObjString = _value.ObjString;
 
+const _chunk = @import("chunk.zig");
+const Chunk = _chunk.Chunk;
+
 // I don't love passing the vm_objects pointer
 // maybe we could bundle alloc and vm_object in a type
 // but I guess that's what I get for avoiding the globals...
@@ -33,8 +36,31 @@ fn allocateObj(alloc: std.mem.Allocator, vm_objects: *?*Obj, comptime T: type) *
     obj.obj.next = vm_objects.*;
     vm_objects.* = @ptrCast(obj);
     switch (T) {
+        ObjFunction => obj.obj.type = .FUNCTION,
         ObjString => obj.obj.type = .STRING,
-        else => @compileError("Invalid type of Obj: " ++ @typeName(T)),
+        else => @compileError("Invalid type of Obj (JL: remember to update this function): " ++ @typeName(T)),
     }
     return obj;
+}
+
+// looks like I accidentally put the Obj family in value
+// when it was supposed to go here...
+// oh well I don't feel like fixing it
+
+pub const ObjFunction = struct {
+    obj: Obj,
+    arity: usize,
+    chunk: Chunk,
+    name: ?*ObjString,
+};
+
+pub fn newFunction(
+    alloc: std.mem.Allocator,
+    vm_objects: *?*Obj,
+) *ObjFunction {
+    var function = allocateObj(alloc, vm_objects, ObjFunction);
+    function.arity = 0;
+    function.name = null;
+    function.chunk = Chunk.init(alloc);
+    return function;
 }

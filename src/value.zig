@@ -1,5 +1,8 @@
 const std = @import("std");
 
+const _object = @import("object.zig");
+const ObjFunction = _object.ObjFunction;
+
 pub const ValueType = enum {
     BOOL,
     NIL,
@@ -21,9 +24,18 @@ pub const Value = union(ValueType) {
         return value.isObjType(.STRING);
     }
 
+    pub inline fn isFunction(value: Value) bool {
+        return value.isObjType(.FUNCTION);
+    }
+
     pub inline fn asString(value: Value) *ObjString {
         std.debug.assert(value.isString());
         return @as(*ObjString, @ptrCast(value.OBJ));
+    }
+
+    pub inline fn asFunction(value: Value) *ObjFunction {
+        std.debug.assert(value.isFunction());
+        return @as(*ObjFunction, @ptrCast(value.OBJ));
     }
 
     pub fn asChars(value: Value) []u8 {
@@ -34,6 +46,7 @@ pub const Value = union(ValueType) {
 };
 
 pub const ObjType = enum {
+    FUNCTION,
     STRING,
 };
 
@@ -95,9 +108,20 @@ pub fn printObject(value: Value) void {
     std.debug.assert(value == .OBJ);
 
     switch (value.OBJ.type) {
+        .FUNCTION => {
+            printFunction(value.asFunction().*);
+        },
         .STRING => {
             std.debug.print("{s}", .{value.asChars()});
         },
+    }
+}
+
+pub fn printFunction(function: ObjFunction) void {
+    if (function.name) |name| {
+        std.debug.print("<fn {s}>", .{name.chars[0..name.len]});
+    } else {
+        std.debug.print("<script>", .{});
     }
 }
 
