@@ -23,11 +23,10 @@ pub fn compile(
     alloc: std.mem.Allocator,
     vm_objects: *?*_value.Obj, // the parser can allocate, so hence needs the GC list
     source: []const u8,
-    chunk: *Chunk,
 ) ?*ObjFunction {
     var scanner = Scanner.init(source);
     var compiler = Compiler.init(.SCRIPT);
-    var parser = Parser.init(alloc, vm_objects, &scanner, &compiler, chunk);
+    var parser = Parser.init(alloc, vm_objects, &scanner, &compiler);
     compiler.init2(alloc, vm_objects);
 
     parser.advance();
@@ -169,14 +168,13 @@ const Parser = struct {
         vm_objects: *?*_value.Obj,
         scanner: *Scanner,
         compiler: *Compiler,
-        chunk: *Chunk,
     ) Parser {
         var parser = Parser{
             .alloc = alloc,
             .vm_objects = vm_objects,
             .scanner = scanner,
             .compiler = compiler,
-            .compiling_chunk = chunk,
+            .compiling_chunk = undefined,
             .current = undefined,
             .previous = undefined,
             .had_error = false,

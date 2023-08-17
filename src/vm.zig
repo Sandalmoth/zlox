@@ -19,7 +19,14 @@ const ObjFunction = _object.ObjFunction;
 pub const InterpretResult = enum { ok, compile_error, runtime_error };
 
 const stack_max = 256;
+const frames_max = 16;
 const debug_trace_execution: bool = true;
+
+const CallFrame = struct {
+    function: *ObjFunction,
+    ip: [*]u8,
+    slots: [*]Value,
+};
 
 pub const VM = struct {
     // going outside the book a bit:
@@ -29,6 +36,10 @@ pub const VM = struct {
 
     chunk: *Chunk,
     ip: [*]u8,
+
+    frames: []CallFrame,
+    frame_count: usize,
+
     stack: []Value,
     stack_top: [*]Value,
 
@@ -44,6 +55,8 @@ pub const VM = struct {
             .alloc = alloc,
             .chunk = undefined, // set by interpret (the entry point)
             .ip = undefined, // set by interpret
+            .frames = alloc.alloc(CallFrame, frames_max) catch unreachable,
+            .frame_count = 0,
             .stack = alloc.alloc(Value, stack_max) catch unreachable,
             .stack_top = undefined,
             .globals = std.StringHashMap(Value).init(alloc),
@@ -54,6 +67,7 @@ pub const VM = struct {
     }
 
     pub fn deinit(vm: *VM) void {
+        vm.alloc.free(vm.frames);
         vm.alloc.free(vm.stack);
         vm.globals.deinit(); // note, keys are freed by freeObjects
         vm.freeObjects();
@@ -103,15 +117,17 @@ pub const VM = struct {
     }
 
     pub fn interpret(vm: *VM, source: []const u8) InterpretResult {
-        var chunk = Chunk.init(vm.alloc);
-        defer chunk.deinit();
-
-        if (_compiler.compile(vm.alloc, &vm.objects, source, &chunk) == null) {
+        var function = _compiler.compile(vm.alloc, &vm.objects, source);
+        if (function == null) {
             return .compile_error;
         }
 
-        vm.chunk = &chunk;
-        vm.ip = vm.chunk.code.items.ptr;
+        vm.push(Value{ .OBJ = @ptrCast(function.?) });
+        const frame = &vm.frames[vm.frame_count];
+        vm.frame_count += 1;
+        frame.function = function.?;
+        frame.ip = frame.function.chunk.code.items.ptr;
+        frame.slots = vm.stack.ptr;
 
         return vm.run();
     }
@@ -121,6 +137,8 @@ pub const VM = struct {
     /// tail recursion is enforced to prevent stack overflow
     fn run(vm: *VM) InterpretResult {
         // note, the mutual recursion eliminates the need for a loop
+        const frame = &vm.frames[vm.frame_count - 1];
+
         if (debug_trace_execution) {
             std.debug.print("          ", .{});
             var slot = vm.stack.ptr;
@@ -131,13 +149,13 @@ pub const VM = struct {
             }
             std.debug.print("\n", .{});
             _ = _debug.disassembleInstruction(
-                vm.chunk.*,
-                @intCast(@intFromPtr(vm.ip) - @intFromPtr(vm.chunk.code.items.ptr)),
+                frame.function.chunk,
+                @intCast(@intFromPtr(frame.ip) - @intFromPtr(frame.function.chunk.code.items.ptr)),
             );
         }
 
-        const byte = vm.ip[0];
-        vm.ip += 1;
+        const byte = frame.ip[0];
+        frame.ip += 1;
         std.debug.assert(byte < std.meta.fields(OpCode).len);
         const instruction: OpCode = @enumFromInt(byte);
 
@@ -176,8 +194,9 @@ pub const VM = struct {
     }
 
     fn op_CONST(vm: *VM) InterpretResult {
-        const byte = vm.ip[0];
-        vm.ip += 1;
+        const frame = &vm.frames[vm.frame_count - 1];
+        const byte = frame.ip[0];
+        frame.ip += 1;
         const constant = vm.chunk.constants.values.items[byte];
         vm.push(constant);
         // _value.printValue(constant);
@@ -207,24 +226,27 @@ pub const VM = struct {
     }
 
     fn op_GET_LOCAL(vm: *VM) InterpretResult {
-        const slot = vm.ip[0];
-        vm.ip += 1;
-        vm.push(vm.stack[@intCast(slot)]);
+        const frame = &vm.frames[vm.frame_count - 1];
+        const slot = frame.ip[0];
+        frame.ip += 1;
+        vm.push(frame.slots[@intCast(slot)]);
 
         return @call(.always_tail, run, .{vm});
     }
 
     fn op_SET_LOCAL(vm: *VM) InterpretResult {
-        const slot = vm.ip[0];
-        vm.ip += 1;
-        vm.stack[@intCast(slot)] = vm.peek(0);
+        const frame = &vm.frames[vm.frame_count - 1];
+        const slot = frame.ip[0];
+        frame.ip += 1;
+        frame.slots[@intCast(slot)] = vm.peek(0);
 
         return @call(.always_tail, run, .{vm});
     }
 
     fn op_GET_GLOBAL(vm: *VM) InterpretResult {
-        const byte = vm.ip[0];
-        vm.ip += 1;
+        const frame = &vm.frames[vm.frame_count - 1];
+        const byte = frame.ip[0];
+        frame.ip += 1;
         const name = vm.chunk.constants.values.items[byte].asString();
         const value = vm.globals.get(name.chars[0..name.len]) orelse {
             vm.runtimeError("Undefined variable '{s}'", .{name.chars[0..name.len]});
@@ -236,8 +258,9 @@ pub const VM = struct {
     }
 
     fn op_DEFINE_GLOBAL(vm: *VM) InterpretResult {
-        const byte = vm.ip[0];
-        vm.ip += 1;
+        const frame = &vm.frames[vm.frame_count - 1];
+        const byte = frame.ip[0];
+        frame.ip += 1;
         const name = vm.chunk.constants.values.items[byte].asString();
         vm.globals.put(name.chars[0..name.len], vm.peek(0)) catch unreachable;
         _ = vm.pop();
@@ -246,8 +269,9 @@ pub const VM = struct {
     }
 
     fn op_SET_GLOBAL(vm: *VM) InterpretResult {
-        const byte = vm.ip[0];
-        vm.ip += 1;
+        const frame = &vm.frames[vm.frame_count - 1];
+        const byte = frame.ip[0];
+        frame.ip += 1;
         const name = vm.chunk.constants.values.items[byte].asString();
         // I guess if we remove this check then we get implicit variable decls
         if (vm.globals.contains(name.chars[0..name.len])) {
@@ -388,36 +412,39 @@ pub const VM = struct {
     }
 
     fn op_JUMP(vm: *VM) InterpretResult {
-        const byte1: usize = @intCast(vm.ip[0]);
-        vm.ip += 1;
-        const byte2: usize = @intCast(vm.ip[0]);
-        vm.ip += 1;
+        const frame = &vm.frames[vm.frame_count - 1];
+        const byte1: usize = @intCast(frame.ip[0]);
+        frame.ip += 1;
+        const byte2: usize = @intCast(frame.ip[0]);
+        frame.ip += 1;
         const offset = (byte1 << 8) | byte2;
-        vm.ip += offset;
+        frame.ip += offset;
 
         return @call(.always_tail, run, .{vm});
     }
 
     fn op_JUMP_IF_FALSE(vm: *VM) InterpretResult {
-        const byte1: usize = @intCast(vm.ip[0]);
-        vm.ip += 1;
-        const byte2: usize = @intCast(vm.ip[0]);
-        vm.ip += 1;
+        const frame = &vm.frames[vm.frame_count - 1];
+        const byte1: usize = @intCast(frame.ip[0]);
+        frame.ip += 1;
+        const byte2: usize = @intCast(frame.ip[0]);
+        frame.ip += 1;
         const offset = (byte1 << 8) | byte2;
         if (isFalsy(vm.peek(0))) {
-            vm.ip += offset;
+            frame.ip += offset;
         }
 
         return @call(.always_tail, run, .{vm});
     }
 
     fn op_LOOP(vm: *VM) InterpretResult {
-        const byte1: usize = @intCast(vm.ip[0]);
-        vm.ip += 1;
-        const byte2: usize = @intCast(vm.ip[0]);
-        vm.ip += 1;
+        const frame = &vm.frames[vm.frame_count - 1];
+        const byte1: usize = @intCast(frame.ip[0]);
+        frame.ip += 1;
+        const byte2: usize = @intCast(frame.ip[0]);
+        frame.ip += 1;
         const offset = (byte1 << 8) | byte2;
-        vm.ip -= offset;
+        frame.ip -= offset;
 
         return @call(.always_tail, run, .{vm});
     }
@@ -430,8 +457,9 @@ pub const VM = struct {
     fn runtimeError(vm: *VM, comptime fmt: []const u8, args: anytype) void {
         std.debug.print(fmt, args);
 
-        const instruction: usize = @intFromPtr(vm.ip) - @intFromPtr(vm.chunk.code.items.ptr) - 1;
-        const line = vm.chunk.lines.items[instruction];
+        const frame = &vm.frames[vm.frame_count - 1];
+        const instruction: usize = @intFromPtr(frame.ip) - @intFromPtr(frame.function.chunk.code.items.ptr) - 1;
+        const line = frame.function.chunk.lines.items[instruction];
         std.debug.print("\n[line {}] in script\n", .{line});
 
         vm.resetStack();
