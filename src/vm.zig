@@ -197,7 +197,7 @@ pub const VM = struct {
         const frame = &vm.frames[vm.frame_count - 1];
         const byte = frame.ip[0];
         frame.ip += 1;
-        const constant = vm.chunk.constants.values.items[byte];
+        const constant = frame.function.chunk.constants.values.items[byte];
         vm.push(constant);
         // _value.printValue(constant);
         // std.debug.print("\n", .{});
