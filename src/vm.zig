@@ -247,7 +247,7 @@ pub const VM = struct {
         const frame = &vm.frames[vm.frame_count - 1];
         const byte = frame.ip[0];
         frame.ip += 1;
-        const name = vm.chunk.constants.values.items[byte].asString();
+        const name = frame.function.chunk.constants.values.items[byte].asString();
         const value = vm.globals.get(name.chars[0..name.len]) orelse {
             vm.runtimeError("Undefined variable '{s}'", .{name.chars[0..name.len]});
             return .runtime_error;
@@ -261,7 +261,7 @@ pub const VM = struct {
         const frame = &vm.frames[vm.frame_count - 1];
         const byte = frame.ip[0];
         frame.ip += 1;
-        const name = vm.chunk.constants.values.items[byte].asString();
+        const name = frame.function.chunk.constants.values.items[byte].asString();
         vm.globals.put(name.chars[0..name.len], vm.peek(0)) catch unreachable;
         _ = vm.pop();
 

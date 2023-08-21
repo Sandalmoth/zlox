@@ -74,6 +74,7 @@ const FunctionType = enum {
 // and clox makes it a global too :(
 // hopefully just storing a reference in the parser should work
 const Compiler = struct {
+    enclosing: ?*Compiler,
     function: *ObjFunction,
     type: FunctionType,
 
@@ -83,6 +84,7 @@ const Compiler = struct {
 
     fn init(typ: FunctionType) Compiler {
         return Compiler{
+            .enclosing = null, // i'll do the init of this explicitly
             .function = undefined, // should be fine?
             .type = typ,
             .locals = undefined, // we shouldn't be accessing unused ones anyway
@@ -208,6 +210,48 @@ const Parser = struct {
         parser.consume(.RIGHT_CURLY, "Expect '}' after block");
     }
 
+    fn function(parser: *Parser, typ: FunctionType) void {
+        var compiler = Compiler.init(typ);
+        compiler.init2(parser.alloc, parser.vm_objects);
+        compiler.enclosing = parser.compiler;
+        parser.compiler = &compiler;
+        parser.compiler.function.name = _object.copyString(parser.alloc, parser.vm_objects, parser.previous.lexeme);
+        parser.beginScope();
+
+        parser.consume(.LEFT_PAREN, "expect '(' after function name");
+        if (!parser.check(.RIGHT_PAREN)) {
+            while (true) {
+                parser.compiler.function.arity += 1;
+                if (parser.compiler.function.arity > 255) {
+                    parser.errAtCurrent("A function can't have more than 255 arguments");
+                }
+                const constant = parser.parseVariable("Expect argument name");
+                parser.defineVariable(constant);
+
+                if (parser.match(.COMMA)) {
+                    break;
+                }
+            } // it's a sad day when you need do/while and the language doesn't support it
+        }
+        parser.consume(.RIGHT_PAREN, "expect ')' after parameters");
+        parser.consume(.LEFT_CURLY, "expect '{' before function body");
+        parser.block();
+
+        var _function = parser.endCompiler();
+        parser.compiler = compiler.enclosing.?;
+        parser.emitOpByte(
+            .CONST,
+            parser.makeConstant(Value{ .OBJ = @ptrCast(_function) }),
+        );
+    }
+
+    fn funDeclaration(parser: *Parser) void {
+        const global = parser.parseVariable("Expect function name");
+        parser.markInitialized();
+        parser.function(.FUNCTION);
+        parser.defineVariable(global);
+    }
+
     fn varDeclaration(parser: *Parser) void {
         const global = parser.parseVariable("Expect variable name");
 
@@ -323,7 +367,9 @@ const Parser = struct {
     }
 
     fn declaration(parser: *Parser) void {
-        if (parser.match(.VAR)) {
+        if (parser.match(.FUN)) {
+            parser.funDeclaration();
+        } else if (parser.match(.VAR)) {
             parser.varDeclaration();
         } else {
             parser.statement();
@@ -449,21 +495,21 @@ const Parser = struct {
     fn endCompiler(parser: *Parser) *ObjFunction {
         parser.emitReturn();
 
-        const function = parser.compiler.function;
+        const _function = parser.compiler.function;
 
         if (debug_print_code) {
             if (!parser.had_error) {
                 _debug.disassembleChunk(
                     parser.currentChunk().*,
-                    if (function.name != null)
-                        function.name.?.chars[0..function.name.?.len]
+                    if (_function.name != null)
+                        _function.name.?.chars[0.._function.name.?.len]
                     else
                         "<script>",
                 );
             }
         }
 
-        return function;
+        return _function;
     }
 
     fn beginScope(parser: *Parser) void {
@@ -664,6 +710,10 @@ const Parser = struct {
     }
 
     fn markInitialized(parser: *Parser) void {
+        if (parser.compiler.scope_depth == 0) {
+            return;
+        }
+
         parser.compiler.locals[parser.compiler.n_locals - 1].depth =
             parser.compiler.scope_depth;
     }
