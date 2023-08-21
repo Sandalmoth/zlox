@@ -108,7 +108,7 @@ const Compiler = struct {
 const parse_rules: [std.meta.fields(TokenType).len]ParseRule = init: {
     var rules: [std.meta.fields(TokenType).len]ParseRule = undefined;
     // zig fmt: off
-    rules[@intFromEnum(TokenType.LEFT_PAREN)]  = .{ .prefix = &Parser.grouping, .infix = null,           .precedence = .NONE };
+    rules[@intFromEnum(TokenType.LEFT_PAREN)]  = .{ .prefix = &Parser.grouping, .infix = &Parser.call,   .precedence = .CALL };
     rules[@intFromEnum(TokenType.RIGHT_PAREN)] = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.LEFT_CURLY)]  = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
     rules[@intFromEnum(TokenType.RIGHT_CURLY)] = .{ .prefix = null,             .infix = null,           .precedence = .NONE };
@@ -228,12 +228,12 @@ const Parser = struct {
                 const constant = parser.parseVariable("Expect argument name");
                 parser.defineVariable(constant);
 
-                if (parser.match(.COMMA)) {
+                if (!parser.match(.COMMA)) {
                     break;
                 }
             } // it's a sad day when you need do/while and the language doesn't support it
         }
-        parser.consume(.RIGHT_PAREN, "expect ')' after parameters");
+        parser.consume(.RIGHT_PAREN, "expect ')' after arguments");
         parser.consume(.LEFT_CURLY, "expect '{' before function body");
         parser.block();
 
@@ -338,6 +338,20 @@ const Parser = struct {
         parser.emitOp(.PRINT);
     }
 
+    fn returnStatement(parser: *Parser) void {
+        if (parser.compiler.type == .SCRIPT) {
+            parser.err("Can't return from top level code");
+        }
+
+        if (parser.match(.SEMI)) {
+            parser.emitReturn();
+        } else {
+            parser.expression();
+            parser.consume(.SEMI, "Expect ';' after return value");
+            parser.emitOp(.RETURN);
+        }
+    }
+
     fn whileStatement(parser: *Parser) void {
         const loop_start = parser.currentChunk().code.items.len;
         parser.consume(.LEFT_PAREN, "Expect '(' after 'while'");
@@ -387,6 +401,8 @@ const Parser = struct {
             parser.forStatement();
         } else if (parser.match(.IF)) {
             parser.ifStatement();
+        } else if (parser.match(.RETURN)) {
+            parser.returnStatement();
         } else if (parser.match(.WHILE)) {
             parser.whileStatement();
         } else if (parser.match(.LEFT_CURLY)) {
@@ -463,6 +479,7 @@ const Parser = struct {
     }
 
     fn emitReturn(parser: *Parser) void {
+        parser.emitOp(.NIL);
         parser.emitOp(.RETURN);
     }
 
@@ -621,6 +638,12 @@ const Parser = struct {
         }
     }
 
+    fn call(parser: *Parser, can_assign: bool) void {
+        _ = can_assign;
+        const n_args = parser.argumentList();
+        parser.emitOpByte(.CALL, n_args);
+    }
+
     fn literal(parser: *Parser, can_assign: bool) void {
         _ = can_assign;
         switch (parser.previous.type) {
@@ -725,6 +748,24 @@ const Parser = struct {
         }
 
         parser.emitOpByte(.DEFINE_GLOBAL, global);
+    }
+
+    fn argumentList(parser: *Parser) u8 {
+        var n_args: u8 = 0;
+        if (!parser.check(.RIGHT_PAREN)) {
+            while (true) {
+                parser.expression();
+                if (n_args == 255) {
+                    parser.err("Cannot have more than 255 arguments");
+                }
+                n_args += 1;
+                if (!parser.match(.COMMA)) {
+                    break;
+                }
+            }
+        }
+        parser.consume(.RIGHT_PAREN, "Expect ')' after arguments");
+        return n_args;
     }
 
     fn and_(parser: *Parser, can_assign: bool) void {

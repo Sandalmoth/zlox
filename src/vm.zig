@@ -18,8 +18,8 @@ const ObjFunction = _object.ObjFunction;
 
 pub const InterpretResult = enum { ok, compile_error, runtime_error };
 
-const stack_max = 256;
-const frames_max = 16;
+const stack_max = 1024;
+const frames_max = 64;
 const debug_trace_execution: bool = true;
 
 const CallFrame = struct {
@@ -116,6 +116,38 @@ pub const VM = struct {
         return (vm.stack_top - 1 - distance)[0];
     }
 
+    pub fn call(vm: *VM, function: *ObjFunction, n_args: u8) bool {
+        if (n_args != function.arity) {
+            vm.runtimeError("Expected {} arguments but got {}", .{ function.arity, n_args });
+            return false;
+        }
+
+        if (vm.frame_count == frames_max) {
+            vm.runtimeError("Stack overflow", .{});
+            return false;
+        }
+
+        var frame = &vm.frames[vm.frame_count];
+        vm.frame_count += 1;
+        frame.function = function;
+        frame.ip = function.chunk.code.items.ptr;
+        frame.slots = vm.stack_top - n_args - 1;
+        return true;
+    }
+
+    pub fn callValue(vm: *VM, callee: Value, n_args: u8) bool {
+        if (callee == .OBJ) {
+            switch (callee.OBJ.type) {
+                .FUNCTION => {
+                    return vm.call(callee.asFunction(), n_args);
+                },
+                else => {},
+            }
+        }
+        vm.runtimeError("Can only call functions and classes", .{});
+        return false;
+    }
+
     pub fn interpret(vm: *VM, source: []const u8) InterpretResult {
         var function = _compiler.compile(vm.alloc, &vm.objects, source);
         if (function == null) {
@@ -123,11 +155,7 @@ pub const VM = struct {
         }
 
         vm.push(Value{ .OBJ = @ptrCast(function.?) });
-        const frame = &vm.frames[vm.frame_count];
-        vm.frame_count += 1;
-        frame.function = function.?;
-        frame.ip = frame.function.chunk.code.items.ptr;
-        frame.slots = vm.stack.ptr;
+        _ = vm.call(function.?, 0);
 
         return vm.run();
     }
@@ -184,6 +212,7 @@ pub const VM = struct {
             .JUMP => return @call(.always_tail, op_JUMP, .{vm}),
             .JUMP_IF_FALSE => return @call(.always_tail, op_JUMP_IF_FALSE, .{vm}),
             .LOOP => return @call(.always_tail, op_LOOP, .{vm}),
+            .CALL => return @call(.always_tail, op_CALL, .{vm}),
             .RETURN => return @call(.always_tail, op_RETURN, .{vm}),
         }
 
@@ -272,7 +301,7 @@ pub const VM = struct {
         const frame = &vm.frames[vm.frame_count - 1];
         const byte = frame.ip[0];
         frame.ip += 1;
-        const name = vm.chunk.constants.values.items[byte].asString();
+        const name = frame.function.chunk.constants.values.items[byte].asString();
         // I guess if we remove this check then we get implicit variable decls
         if (vm.globals.contains(name.chars[0..name.len])) {
             vm.globals.put(name.chars[0..name.len], vm.peek(0)) catch unreachable;
@@ -449,18 +478,52 @@ pub const VM = struct {
         return @call(.always_tail, run, .{vm});
     }
 
+    fn op_CALL(vm: *VM) InterpretResult {
+        const frame = &vm.frames[vm.frame_count - 1];
+        const n_args = frame.ip[0];
+        frame.ip += 1;
+
+        if (!vm.callValue(vm.peek(n_args), n_args)) {
+            return .runtime_error;
+        }
+        // i think we can ignore this, since, we're recalcin thet frame everywhere
+        // vm.frame = &vm.frames[vm.frame_count - 1];
+
+        return @call(.always_tail, run, .{vm});
+    }
+
     fn op_RETURN(vm: *VM) InterpretResult {
-        _ = vm;
-        return .ok;
+        const result = vm.pop();
+        vm.frame_count -= 1;
+        if (vm.frame_count == 0) {
+            _ = vm.pop();
+            return .ok;
+        }
+
+        const frame = &vm.frames[vm.frame_count];
+        vm.stack_top = frame.slots;
+        vm.push(result);
+
+        return @call(.always_tail, run, .{vm});
     }
 
     fn runtimeError(vm: *VM, comptime fmt: []const u8, args: anytype) void {
         std.debug.print(fmt, args);
 
-        const frame = &vm.frames[vm.frame_count - 1];
-        const instruction: usize = @intFromPtr(frame.ip) - @intFromPtr(frame.function.chunk.code.items.ptr) - 1;
-        const line = frame.function.chunk.lines.items[instruction];
-        std.debug.print("\n[line {}] in script\n", .{line});
+        var i = vm.frame_count;
+        while (i > 0) : (i -= 1) {
+            std.debug.print("{}\n", .{i});
+            const frame = &vm.frames[i - 1];
+            const function = frame.function;
+            const instruction: usize = @intFromPtr(frame.ip) - @intFromPtr(function.chunk.code.items.ptr) - 1;
+            const line = function.chunk.lines.items[instruction];
+            std.debug.print("\n[line {}] in ", .{line});
+            if (function.name) |name| {
+                std.debug.print("{s}()\n", .{name.chars[0..name.len]});
+            } else {
+                std.debug.print("script\n", .{});
+            }
+        }
 
         vm.resetStack();
     }
