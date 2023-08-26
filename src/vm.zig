@@ -512,7 +512,6 @@ pub const VM = struct {
 
         var i = vm.frame_count;
         while (i > 0) : (i -= 1) {
-            std.debug.print("{}\n", .{i});
             const frame = &vm.frames[i - 1];
             const function = frame.function;
             const instruction: usize = @intFromPtr(frame.ip) - @intFromPtr(function.chunk.code.items.ptr) - 1;
