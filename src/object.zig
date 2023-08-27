@@ -36,6 +36,7 @@ fn allocateObj(alloc: std.mem.Allocator, vm_objects: *?*Obj, comptime T: type) *
     obj.obj.next = vm_objects.*;
     vm_objects.* = @ptrCast(obj);
     switch (T) {
+        ObjNative => obj.obj.type = .NATIVE,
         ObjFunction => obj.obj.type = .FUNCTION,
         ObjString => obj.obj.type = .STRING,
         else => @compileError("Invalid type of Obj (JL: remember to update this function): " ++ @typeName(T)),
@@ -63,4 +64,17 @@ pub fn newFunction(
     function.name = null;
     function.chunk = Chunk.init(alloc);
     return function;
+}
+
+pub const NativeFn = *const (fn (u8, [*]_value.Value) _value.Value);
+
+pub const ObjNative = struct {
+    obj: Obj,
+    function: NativeFn,
+};
+
+pub fn newNative(alloc: std.mem.Allocator, vm_objects: *?*Obj, function: NativeFn) *ObjNative {
+    var native = allocateObj(alloc, vm_objects, ObjNative);
+    native.function = function;
+    return native;
 }

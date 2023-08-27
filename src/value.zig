@@ -2,6 +2,7 @@ const std = @import("std");
 
 const _object = @import("object.zig");
 const ObjFunction = _object.ObjFunction;
+const ObjNative = _object.ObjNative;
 
 pub const ValueType = enum {
     BOOL,
@@ -28,6 +29,10 @@ pub const Value = union(ValueType) {
         return value.isObjType(.FUNCTION);
     }
 
+    pub inline fn isNative(value: Value) bool {
+        return value.isObjType(.NATIVE);
+    }
+
     pub inline fn asString(value: Value) *ObjString {
         std.debug.assert(value.isString());
         return @as(*ObjString, @ptrCast(value.OBJ));
@@ -38,6 +43,11 @@ pub const Value = union(ValueType) {
         return @as(*ObjFunction, @ptrCast(value.OBJ));
     }
 
+    pub inline fn asNative(value: Value) _object.NativeFn {
+        std.debug.assert(value.isNative());
+        return @as(*ObjNative, @ptrCast(value.OBJ)).function;
+    }
+
     pub fn asChars(value: Value) []u8 {
         std.debug.assert(value.isString());
         const string = @as(*ObjString, @ptrCast(value.OBJ));
@@ -46,6 +56,7 @@ pub const Value = union(ValueType) {
 };
 
 pub const ObjType = enum {
+    NATIVE,
     FUNCTION,
     STRING,
 };
@@ -108,6 +119,9 @@ pub fn printObject(value: Value) void {
     std.debug.assert(value == .OBJ);
 
     switch (value.OBJ.type) {
+        .NATIVE => {
+            std.debug.print("<native fn>", .{});
+        },
         .FUNCTION => {
             printFunction(value.asFunction().*);
         },

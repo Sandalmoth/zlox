@@ -15,6 +15,7 @@ const _compiler = @import("compiler.zig");
 
 const _object = @import("object.zig");
 const ObjFunction = _object.ObjFunction;
+const ObjNative = _object.ObjNative;
 
 pub const InterpretResult = enum { ok, compile_error, runtime_error };
 
@@ -63,6 +64,9 @@ pub const VM = struct {
             .objects = null,
         };
         vm.resetStack(); // sets stack_top
+
+        vm.defineNative("clock", &clockNative);
+
         return vm;
     }
 
@@ -85,6 +89,10 @@ pub const VM = struct {
 
     fn freeObject(vm: *VM, obj: *Obj) void {
         switch (obj.type) {
+            .NATIVE => {
+                var native = @as(*ObjNative, @ptrCast(obj));
+                vm.alloc.destroy(native);
+            },
             .FUNCTION => {
                 var function = @as(*ObjFunction, @ptrCast(obj));
                 function.chunk.deinit();
@@ -140,6 +148,13 @@ pub const VM = struct {
             switch (callee.OBJ.type) {
                 .FUNCTION => {
                     return vm.call(callee.asFunction(), n_args);
+                },
+                .NATIVE => {
+                    const native = callee.asNative();
+                    const result = native(n_args, vm.stack_top - n_args);
+                    vm.stack_top -= n_args + 1;
+                    vm.push(result);
+                    return true;
                 },
                 else => {},
             }
@@ -526,4 +541,21 @@ pub const VM = struct {
 
         vm.resetStack();
     }
+
+    /// NOTE name must not be freed until after the vm
+    fn defineNative(vm: *VM, name: []const u8, function: _object.NativeFn) void {
+        // maybe ugly hack, but,
+        // we don't need to garbage collect the name
+        // so long as the native functions are added statically
+        // vm.push(Value{ .OBJ = @ptrCast(_object.copyString(vm.alloc, &vm.objects, name)) });
+        vm.push(Value{ .OBJ = @ptrCast(_object.newNative(vm.alloc, &vm.objects, function)) });
+        vm.globals.put(name, vm.stack[0]) catch unreachable;
+        _ = vm.pop();
+    }
 };
+
+fn clockNative(n_args: u8, args: [*]Value) Value {
+    _ = n_args;
+    _ = args;
+    return Value{ .NUMBER = @floatFromInt(std.time.timestamp()) };
+}
